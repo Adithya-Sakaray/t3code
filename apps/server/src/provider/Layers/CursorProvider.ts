@@ -50,7 +50,12 @@ import {
 } from "../providerMaintenance.ts";
 import * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import { CursorListAvailableModelsResponse } from "../acp/CursorAcpExtension.ts";
-import { cursorPeriodUsageToLimits, cursorStatusAccessToken } from "./cursorUsageLimits.ts";
+import {
+  cursorAuthTokenFromJson,
+  cursorCliAuthJsonPath,
+  cursorPeriodUsageToLimits,
+  cursorStatusAccessToken,
+} from "./cursorUsageLimits.ts";
 import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 
 const decodeCursorListAvailableModelsResponse = Schema.decodeUnknownEffect(
@@ -1037,6 +1042,33 @@ const fetchCursorDashboardUsage = (token: string) =>
     );
   });
 
+const cursorAuthEnvironment = (environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const env = environment ?? process.env;
+  return {
+    ...env,
+    HOME: env.HOME?.trim() || NodeOS.homedir(),
+  };
+};
+
+const readCursorCliAuthToken = (environment: NodeJS.ProcessEnv) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+    if (Option.isNone(fileSystem)) {
+      return undefined;
+    }
+    const authJson = yield* fileSystem.value
+      .readFileString(cursorCliAuthJsonPath(environment))
+      .pipe(Effect.option);
+    if (Option.isNone(authJson)) {
+      return undefined;
+    }
+    try {
+      return cursorAuthTokenFromJson(JSON.parse(authJson.value) as unknown);
+    } catch {
+      return undefined;
+    }
+  });
+
 const probeCursorUsageLimits = (
   cursorSettings: CursorSettings,
   environment: NodeJS.ProcessEnv | undefined,
@@ -1048,19 +1080,21 @@ const probeCursorUsageLimits = (
       ["status", "--format", "json"],
       environment,
     ).pipe(Effect.timeoutOption(STATUS_TIMEOUT_MS), Effect.result);
-    if (Result.isFailure(statusProbe) || Option.isNone(statusProbe.success)) {
-      return makeUnavailableUsageLimits({
-        checkedAt,
-        reason: "probeFailed",
-        message: "Could not read Cursor CLI auth status.",
-      });
-    }
-    const token = cursorStatusAccessToken(statusProbe.success.value.stdout);
+    const statusStdout =
+      Result.isSuccess(statusProbe) && Option.isSome(statusProbe.success)
+        ? statusProbe.success.value.stdout
+        : undefined;
+    const token =
+      (statusStdout ? cursorStatusAccessToken(statusStdout) : undefined) ??
+      (yield* readCursorCliAuthToken(cursorAuthEnvironment(environment)));
     if (!token) {
       return makeUnavailableUsageLimits({
         checkedAt,
         reason: "probeFailed",
-        message: "Cursor CLI did not report an access token.",
+        message:
+          statusStdout === undefined
+            ? "Could not read Cursor CLI auth status."
+            : "Cursor CLI did not report an access token.",
       });
     }
     return (

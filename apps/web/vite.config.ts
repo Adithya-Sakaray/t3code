@@ -146,14 +146,15 @@ function devCompressionPlugin(): Plugin {
 }
 
 // Vite rejects requests whose Host header isn't localhost, which blocks sharing
-// a dev server over Tailscale/LAN. Tailnet names are safe to allow wholesale:
-// the DNS is controlled by tailscale, so they can't be rebound by an attacker.
-// Anything else (ngrok, a LAN IP alias) goes through the env var.
+// a dev server over Tailscale/LAN or a Cloudflare quick tunnel. Tailnet names
+// and trycloudflare hosts are safe to allow wholesale: those DNS zones are not
+// attacker-controlled. Anything else (ngrok, a LAN IP alias) goes through the
+// env var.
 const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .split(",")
   .map((entry) => entry.trim())
   .filter((entry) => entry.length > 0);
-const allowedHosts = [".ts.net", ...configuredAllowedHosts];
+const allowedHosts = [".ts.net", ".trycloudflare.com", ...configuredAllowedHosts];
 
 export default defineConfig(() => {
   return {

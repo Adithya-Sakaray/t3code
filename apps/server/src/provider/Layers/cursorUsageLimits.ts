@@ -4,8 +4,14 @@
  * cycle end. `totalPercentUsed` is a different internal metric; the Limits bar
  * follows included spend / limit, matching Cursor's "included usage" copy.
  *
+ * Newer `agent status --format json` only reports `hasAccessToken: true` and
+ * no longer prints the bearer. The probe still accepts a token from status
+ * when present, then the CLI login file (`auth.json`) the agent itself uses.
+ *
  * @module provider/Layers/cursorUsageLimits
  */
+import * as NodePath from "node:path";
+
 import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -26,9 +32,20 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function isoFromMillis(millis: number): string | undefined {
+  if (!Number.isFinite(millis) || millis <= 0) return undefined;
+  const dt = DateTime.make(millis);
+  return Option.isSome(dt) ? DateTime.formatIso(dt.value) : undefined;
+}
+
 function isoFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "number") return isoFromMillis(value > 1e12 ? value : value * 1000);
   const text = asString(value);
   if (!text) return undefined;
+  if (/^\d{10,13}$/.test(text)) {
+    const epoch = Number(text);
+    return isoFromMillis(text.length >= 13 ? epoch : epoch * 1000);
+  }
   const dt = DateTime.make(text);
   return Option.isSome(dt) ? DateTime.formatIso(dt.value) : undefined;
 }
@@ -65,13 +82,49 @@ function tokenFromRecord(record: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-/** Bearer token from `agent status --format json`. */
+/** Bearer token from `agent status --format json`. Booleans like `hasAccessToken` do not count. */
 export function cursorStatusAccessToken(stdout: string): string | undefined {
   const parsed = parseJsonObject(stdout);
   return parsed ? tokenFromRecord(parsed) : undefined;
 }
 
-function includedUsedPercent(planUsage: Record<string, unknown>): number | undefined {
+/** Bearer token from the Cursor Agent login file. */
+export function cursorAuthTokenFromJson(parsed: unknown): string | undefined {
+  return isRecord(parsed) ? tokenFromRecord(parsed) : undefined;
+}
+
+/**
+ * Login file the Cursor Agent reads for `agent login`. Windows uses `%APPDATA%/Cursor`,
+ * macOS `~/.cursor`, Linux `$XDG_CONFIG_HOME/cursor` (or `~/.config/cursor`).
+ */
+export function cursorCliAuthJsonPath(
+  environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const home = environment.HOME?.trim() || environment.USERPROFILE?.trim() || "";
+  if (platform === "win32") {
+    const appData =
+      environment.APPDATA?.trim() || (home ? NodePath.join(home, "AppData", "Roaming") : "");
+    return NodePath.join(appData, "Cursor", "auth.json");
+  }
+  if (platform === "darwin") {
+    return NodePath.join(home, ".cursor", "auth.json");
+  }
+  const configHome = environment.XDG_CONFIG_HOME?.trim() || NodePath.join(home, ".config");
+  return NodePath.join(configHome, "cursor", "auth.json");
+}
+
+function percentFromDisplayMessage(
+  ...messages: ReadonlyArray<string | undefined>
+): number | undefined {
+  for (const message of messages) {
+    const match = message?.match(/used\s+(\d+(?:\.\d+)?)\s*%/i);
+    if (match) return clampPercent(Number(match[1]));
+  }
+  return undefined;
+}
+
+function spendUsedPercent(planUsage: Record<string, unknown>): number | undefined {
   const limit = asNumber(planUsage.limit);
   const included = asNumber(planUsage.includedSpend) ?? asNumber(planUsage.totalSpend);
   const remaining = asNumber(planUsage.remaining);
@@ -81,11 +134,32 @@ function includedUsedPercent(planUsage: Record<string, unknown>): number | undef
   if (limit !== undefined && limit > 0 && remaining !== undefined) {
     return clampPercent(((limit - remaining) / limit) * 100);
   }
-  const message = asString(planUsage.displayMessage);
-  const match = message?.match(/used\s+(\d+(?:\.\d+)?)\s*%/i);
-  if (match) return clampPercent(Number(match[1]));
+  return undefined;
+}
+
+/**
+ * Cursor's dashboard now reports Auto vs API percents separately. `includedSpend`
+ * often equals `limit` once the included-dollar bucket is full, even when Auto
+ * still has headroom — that ratio is not the number the product shows.
+ */
+function includedUsedPercent(planUsage: Record<string, unknown>): number | undefined {
+  const auto = asNumber(planUsage.autoPercentUsed);
+  if (auto !== undefined) return clampPercent(auto);
+  const fromCopy = percentFromDisplayMessage(
+    asString(planUsage.autoModelSelectedDisplayMessage),
+    asString(planUsage.displayMessage),
+  );
+  if (fromCopy !== undefined) return fromCopy;
+  const spend = spendUsedPercent(planUsage);
+  if (spend !== undefined) return spend;
   const totalPercent = asNumber(planUsage.totalPercentUsed);
   return totalPercent !== undefined ? clampPercent(totalPercent) : undefined;
+}
+
+function apiUsedPercent(planUsage: Record<string, unknown>): number | undefined {
+  const api = asNumber(planUsage.apiPercentUsed);
+  if (api !== undefined) return clampPercent(api);
+  return percentFromDisplayMessage(asString(planUsage.namedModelSelectedDisplayMessage));
 }
 
 function spendLimitWindow(
@@ -117,23 +191,36 @@ export function cursorPeriodUsageToLimits(input: {
 }): ServerProviderUsageLimits | undefined {
   if (!isRecord(input.payload)) return undefined;
   const planUsage = isRecord(input.payload.planUsage) ? input.payload.planUsage : undefined;
-  const usedPercent = planUsage
+  const includedPercent = planUsage
     ? includedUsedPercent(planUsage)
     : asNumber(input.payload.totalPercentUsed);
-  if (usedPercent === undefined) return undefined;
+  const namedPercent = planUsage ? apiUsedPercent(planUsage) : undefined;
+  if (includedPercent === undefined && namedPercent === undefined) return undefined;
 
   const startIso = isoFromUnknown(input.payload.billingCycleStart);
   const resetsAt = isoFromUnknown(input.payload.billingCycleEnd);
-  const windows: ServerProviderUsageWindow[] = [
-    {
+  const windowDurationMins = durationMinsBetween(startIso, resetsAt);
+  const windows: ServerProviderUsageWindow[] = [];
+  if (includedPercent !== undefined) {
+    windows.push({
       id: "included",
       kind: "monthly",
-      label: "Included",
-      usedPercent,
+      label: planUsage && asNumber(planUsage.autoPercentUsed) !== undefined ? "Auto" : "Included",
+      usedPercent: includedPercent,
       ...(resetsAt ? { resetsAt } : {}),
-      windowDurationMins: durationMinsBetween(startIso, resetsAt),
-    },
-  ];
+      windowDurationMins,
+    });
+  }
+  if (namedPercent !== undefined) {
+    windows.push({
+      id: "included_api",
+      kind: "monthly",
+      label: "API",
+      usedPercent: namedPercent,
+      ...(resetsAt ? { resetsAt } : {}),
+      windowDurationMins,
+    });
+  }
   if (isRecord(input.payload.spendLimitUsage)) {
     const spend = spendLimitWindow(input.payload.spendLimitUsage, input.checkedAt, {
       ...(startIso ? { start: startIso } : {}),
