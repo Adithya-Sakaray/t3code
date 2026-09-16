@@ -24,6 +24,7 @@ import serverPackageJson from "../../server/package.json" with { type: "json" };
 declare const __T3CODE_CLI_PACKAGE_NAME__: string | undefined;
 
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";
+import * as MacPermissions from "./permissions/MacPermissions.ts";
 import * as ElectronApp from "./electron/ElectronApp.ts";
 import * as ElectronDialog from "./electron/ElectronDialog.ts";
 import * as ElectronMenu from "./electron/ElectronMenu.ts";
@@ -53,6 +54,7 @@ import * as DesktopObservability from "./app/DesktopObservability.ts";
 import * as DesktopServerExposure from "./backend/DesktopServerExposure.ts";
 import * as DesktopClientSettings from "./settings/DesktopClientSettings.ts";
 import * as DesktopSavedEnvironments from "./settings/DesktopSavedEnvironments.ts";
+import * as DesktopSnapShot from "./snapShot/DesktopSnapShot.ts";
 import * as DesktopAppSettings from "./settings/DesktopAppSettings.ts";
 import * as DesktopPreReadyPlatform from "./app/DesktopPreReadyPlatform.ts";
 import * as DesktopShellEnvironment from "./shell/DesktopShellEnvironment.ts";
@@ -140,6 +142,7 @@ const electronLayer = Layer.mergeAll(
 );
 
 const desktopFoundationLayer = Layer.mergeAll(
+  MacPermissions.layer,
   DesktopState.layer,
   DesktopShutdown.layer,
   DesktopAppSettings.layer,
@@ -169,6 +172,11 @@ const desktopPreviewLayer = PreviewManager.layer.pipe(
 const desktopWindowLayer = DesktopWindow.layer.pipe(
   Layer.provideMerge(desktopServerExposureLayer),
   Layer.provideMerge(desktopPreviewLayer),
+);
+
+const desktopSnapShotLayer = DesktopSnapShot.layer.pipe(
+  Layer.provideMerge(desktopWindowLayer),
+  Layer.provideMerge(desktopFoundationLayer),
 );
 
 const desktopAppActivationLayer = DesktopAppActivation.layer.pipe(
@@ -208,6 +216,7 @@ const desktopApplicationLayer = Layer.mergeAll(
   DesktopShellEnvironment.layer,
   desktopSshLayer,
 ).pipe(
+  Layer.provideMerge(desktopSnapShotLayer),
   Layer.provideMerge(DesktopUpdates.layer),
   Layer.provideMerge(desktopWslBackendLayer),
   Layer.provideMerge(desktopLocalEnvironmentAuthLayer),
