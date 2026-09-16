@@ -72,8 +72,9 @@ and add a Trusted Publisher:
   `Failed to load node-pty for linux-x64`, install `python3`, `make`, and `g++`, prefer Node 24 LTS
   over Node 26, then `npm rebuild node-pty` inside the installed package. Official `t3` has the same
   requirement.
-- The background-service launcher must resolve
-  `runtime/versions/<version>/node_modules/@adithyasak/t3/dist/bin.mjs`, not unscoped `node_modules/t3`.
-  After this ships, run `npx @adithyasak/t3@<version> service update` so `~/.t3/runtime/service-launcher.mjs`
-  is replaced. A unit that still points at the old launcher will fail with "runtime is missing or incomplete."
+- The background-service launcher is `t3 __service-launcher` inside the scoped CLI
+  (`runtime/versions/<version>/node_modules/@adithyasak/t3/dist/bin.mjs`).
+  After this ships, run `npx @adithyasak/t3@<version> service update` so the boot
+  unit points at the new runtime. A unit that still points at a standalone
+  `service-launcher.mjs` will fail with "runtime is missing or incomplete."
 - Kiro and the rest of the personal-fork provider work are unchanged by this distribution path.

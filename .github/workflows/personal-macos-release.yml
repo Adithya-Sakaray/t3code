@@ -191,20 +191,15 @@ jobs:
           done
           echo "Baked T3 Connect public identifiers into $bin"
 
-          launcher="apps/server/dist/service-launcher.mjs"
-          if [[ ! -f "$launcher" ]]; then
-            echo "Missing $launcher" >&2
+          if grep -q 'node_modules/t3/dist/bin.mjs' "$bin" || grep -q 'node_modules", "t3", "dist"' "$bin"; then
+            echo "CLI bundle still hardcodes unscoped node_modules/t3." >&2
             exit 1
           fi
-          if grep -q 'node_modules/t3/dist/bin.mjs' "$launcher" || grep -q 'node_modules", "t3", "dist"' "$launcher"; then
-            echo "service-launcher still hardcodes unscoped node_modules/t3." >&2
+          if ! grep -q '@adithyasak' "$bin"; then
+            echo "CLI bundle is missing the scoped @adithyasak/t3 install path." >&2
             exit 1
           fi
-          if ! grep -q '@adithyasak' "$launcher"; then
-            echo "service-launcher is missing the scoped @adithyasak/t3 install path." >&2
-            exit 1
-          fi
-          echo "Service launcher resolves the scoped @adithyasak/t3 runtime"
+          echo "CLI bundle resolves the scoped @adithyasak/t3 runtime"
 
       - id: pack
         name: Pack CLI with resolved catalog dependencies

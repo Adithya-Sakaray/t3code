@@ -208,7 +208,7 @@ const createVpPmPublishArgs = (config: PublishCommandConfig): ReadonlyArray<stri
 const assertServerBuildAssets = Effect.fn("assertServerBuildAssets")(function* (serverDir: string) {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
-  for (const relPath of ["dist/bin.mjs", "dist/service-launcher.mjs", "dist/client/index.html"]) {
+  for (const relPath of ["dist/bin.mjs", "dist/client/index.html"]) {
     const abs = path.join(serverDir, relPath);
     if (!(yield* fs.exists(abs))) {
       return yield* new ServerCliBuildAssetMissingError({ assetPath: abs });
