@@ -1622,6 +1622,47 @@ const program = Effect.gen(function* () {
         return {};
       });
     }
+    if (method === "x.ai/billing") {
+      return Effect.succeed({
+        config: {
+          currentPeriod: {
+            type: "USAGE_PERIOD_TYPE_WEEKLY",
+            start: "2026-07-07T10:46:52.885Z",
+            end: "2026-07-14T10:46:52.885Z",
+          },
+          creditUsagePercent: 42.5,
+          productUsage: [{ product: "GrokBuild", usagePercent: 42.5 }],
+        },
+      });
+    }
+    if (method === "_kiro.dev/commands/execute") {
+      const commandName =
+        typeof params === "object" &&
+        params !== null &&
+        "command" in params &&
+        typeof params.command === "object" &&
+        params.command !== null &&
+        "command" in params.command &&
+        typeof params.command.command === "string"
+          ? params.command.command
+          : undefined;
+      if (commandName === "usage") {
+        return Effect.succeed({
+          data: {
+            usageBreakdowns: [
+              {
+                type: "CREDIT",
+                currentUsage: 10,
+                usageLimit: 50,
+                resetDate: "2026-08-01T00:00:00.000Z",
+                displayNamePlural: "Credits",
+              },
+            ],
+          },
+        });
+      }
+      return Effect.succeed({});
+    }
     if (method === "cursor/list_available_models") {
       return Effect.succeed({
         models: availableModels(),

@@ -49,13 +49,13 @@ the dialog.
 
 ## Track subscription limits
 
-**Usage → Limits** pools every subscription account it can see per provider, so with several Codex
-or Claude accounts across your environments and hubs you read one number per window rather than a
-list. Each window card shows how much of the pool is left and a bar with one segment per account,
-kept in the same column across windows. Accounts are ordered by their 5-hour reset, soonest
-first, or by the first available window when no account reports a 5-hour limit. A gap means the
-account does not report that window. When the provider reports reset times, the card also says
-when the next reset lands and how much it hands back. The hatched
+**Usage → Limits** pools every subscription account it can see per provider, so with several Codex,
+Claude, Grok, Kiro, or Cursor accounts across your environments and hubs you read one number per
+window rather than a list. Each window card shows how much of the pool is left and a bar with one
+segment per account, kept in the same column across windows. Accounts are ordered by their 5-hour
+reset, soonest first, or by the first available window when no account reports a 5-hour limit. A gap
+means the account does not report that window. When the provider reports reset times, the card also
+says when the next reset lands and how much it hands back. The hatched
 part of a segment is what that reset restores. Tap a segment or account row for the account's plan,
 where it is signed in, and its reset time. On web, you can hover too. Codex accounts with banked
 reset credits show a ticket count and the **Use reset** action in the account details. On narrow screens, numbered rows below
@@ -72,7 +72,10 @@ closes when you dismiss it or send your next message. It uses the same snapshot 
 anything. The command is offered only for providers that appear under **Usage → Limits**.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
-using a proxy through `ANTHROPIC_AUTH_TOKEN`.
+using a proxy through `ANTHROPIC_AUTH_TOKEN`, and to Grok when `XAI_API_KEY` is set instead of
+`grok login`. Kiro limits come from the CLI `/usage` command over ACP. Grok prefers the CLI
+billing method, then the signed-in Grok CLI token. Cursor uses the Agent CLI login to read
+included usage from Cursor's dashboard.
 
 ## Connect a CLIProxyAPI hub
 

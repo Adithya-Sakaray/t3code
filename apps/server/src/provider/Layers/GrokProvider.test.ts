@@ -390,6 +390,16 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
       expect(
         snapshot.models[0]?.capabilities?.optionDescriptors?.map((option) => option.id) ?? [],
       ).toEqual(["reasoningEffort"]);
+      expect(snapshot.usageLimits?.windows).toEqual([
+        {
+          id: "credits",
+          kind: "weekly",
+          label: "Weekly",
+          usedPercent: 42.5,
+          resetsAt: "2026-07-14T10:46:52.885Z",
+          windowDurationMins: 10080,
+        },
+      ]);
     }),
   );
 
@@ -438,6 +448,7 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
         ["grok-4.5", false],
       ]);
       expect(snapshot.message).toContain("ACP initialize failed");
+      expect(snapshot.usageLimits?.unavailable?.reason).toBe("probeFailed");
     }),
   );
 
@@ -462,6 +473,7 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
         label: "xAI API key",
       });
       expect(snapshot.status).toBe("warning");
+      expect(snapshot.usageLimits?.unavailable?.reason).toBe("unsupported");
     }),
   );
 });

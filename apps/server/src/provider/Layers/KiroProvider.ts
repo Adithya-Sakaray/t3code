@@ -3,6 +3,7 @@ import {
   type ModelCapabilities,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { causeErrorTag } from "@t3tools/shared/observability";
@@ -37,6 +38,8 @@ import {
   makeKiroAcpRuntime,
   resolveKiroAcpModelId,
 } from "../acp/KiroAcpSupport.ts";
+import { kiroUsagePayloadToLimits } from "./kiroUsageLimits.ts";
+import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 
 const KIRO_PRESENTATION = {
   displayName: "Kiro",
@@ -147,6 +150,8 @@ function buildKiroDiscoveredModels(
   });
 }
 
+const KIRO_USAGE_COMMAND = "_kiro.dev/commands/execute";
+
 const discoverKiroModelsViaAcp = (
   settings: KiroSettings,
   environment: NodeJS.ProcessEnv = process.env,
@@ -161,7 +166,16 @@ const discoverKiroModelsViaAcp = (
       clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
     });
     const started = yield* acp.start();
-    return buildKiroDiscoveredModels(started.sessionSetupResult.models);
+    const usagePayload = yield* acp
+      .request(KIRO_USAGE_COMMAND, {
+        sessionId: started.sessionId,
+        command: { command: "usage", args: {} },
+      })
+      .pipe(Effect.timeout("8 seconds"), Effect.option, Effect.map(Option.getOrUndefined));
+    return {
+      models: buildKiroDiscoveredModels(started.sessionSetupResult.models),
+      usagePayload,
+    };
   }).pipe(Effect.scoped);
 
 const runKiroVersionCommand = (
@@ -290,20 +304,28 @@ export const checkKiroProviderStatus = Effect.fn("checkKiroProviderStatus")(func
     });
   }
 
-  const discoveredModels = discoveryExit.value.value;
+  const discovered = discoveryExit.value.value;
+  const usageLimits: ServerProviderUsageLimits =
+    kiroUsagePayloadToLimits({ payload: discovered.usagePayload, checkedAt }) ??
+    makeUnavailableUsageLimits({
+      checkedAt,
+      reason: "probeFailed",
+      message: "Kiro CLI did not return subscription usage.",
+    });
   return buildServerProvider({
     presentation: KIRO_PRESENTATION,
     enabled: true,
     checkedAt,
     models:
-      discoveredModels.length > 0
-        ? kiroModelsFromSettings(settings.customModels, discoveredModels)
+      discovered.models.length > 0
+        ? kiroModelsFromSettings(settings.customModels, discovered.models)
         : fallbackModels,
     probe: {
       installed: true,
       version,
       status: "ready",
       auth: { status: "unknown" },
+      usageLimits,
     },
   });
 });

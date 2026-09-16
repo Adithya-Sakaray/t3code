@@ -1,3 +1,6 @@
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import {
   type CustomModelSetting,
   type GrokSettings,
@@ -5,6 +8,7 @@ import {
   type ServerProvider,
   type ServerProviderAuth,
   type ServerProviderModel,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import { causeErrorTag } from "@t3tools/shared/observability";
@@ -12,9 +16,10 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -41,6 +46,8 @@ import {
 } from "../acp/GrokAcpSupport.ts";
 import { sessionModelStateFromInitialize } from "../acp/AcpRuntimeModel.ts";
 import { discoverGrokSkills } from "../Drivers/GrokSkills.ts";
+import { grokAuthTokenFromJson, grokBillingToLimits } from "./grokUsageLimits.ts";
+import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 
 const GROK_PRESENTATION = {
   displayName: "Grok",
@@ -55,6 +62,8 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 // `initialize` is a single local round trip, so this is generous even on slow machines.
 const GROK_ACP_INITIALIZE_TIMEOUT_MS = 8_000;
+const GROK_ACP_BILLING_TIMEOUT_MS = 8_000;
+const GROK_CLI_PROXY_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 const GROK_API_KEY_ENV = "XAI_API_KEY";
 
 const GROK_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -310,6 +319,7 @@ const runGrokCliCommand = (
 /**
  * Reads model metadata from `initialize._meta.modelState`. This never calls `authenticate`
  * or `session/new`, so it cannot open a browser login or boot the workspace's MCP servers.
+ * Billing is the same initialize-only connection: `x.ai/billing` needs no session.
  */
 const discoverGrokModelsViaAcpInitialize = (
   grokSettings: GrokSettings,
@@ -325,8 +335,61 @@ const discoverGrokModelsViaAcpInitialize = (
       clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
     });
     const initialized = yield* acp.initialize();
-    return buildGrokModelsFromSessionModelState(sessionModelStateFromInitialize(initialized));
+    const billingPayload = yield* acp
+      .request("x.ai/billing", {})
+      .pipe(
+        Effect.timeout(GROK_ACP_BILLING_TIMEOUT_MS),
+        Effect.option,
+        Effect.map(Option.getOrUndefined),
+      );
+    return {
+      models: buildGrokModelsFromSessionModelState(sessionModelStateFromInitialize(initialized)),
+      billingPayload,
+    };
   }).pipe(Effect.scoped);
+
+const grokHomeDirectory = (environment: NodeJS.ProcessEnv): string =>
+  environment.GROK_HOME?.trim() ||
+  NodePath.join(environment.HOME?.trim() || NodeOS.homedir(), ".grok");
+
+const fetchGrokCliProxyBilling = (environment: NodeJS.ProcessEnv) =>
+  Effect.gen(function* () {
+    const httpClient = yield* Effect.serviceOption(HttpClient.HttpClient);
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+    if (Option.isNone(httpClient) || Option.isNone(fileSystem)) {
+      return undefined;
+    }
+    const authJson = yield* fileSystem.value
+      .readFileString(NodePath.join(grokHomeDirectory(environment), "auth.json"))
+      .pipe(Effect.option);
+    if (Option.isNone(authJson)) {
+      return undefined;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(authJson.value) as unknown;
+    } catch {
+      return undefined;
+    }
+    const token = grokAuthTokenFromJson(parsed, Date.now());
+    if (!token) {
+      return undefined;
+    }
+    const request = HttpClientRequest.get(GROK_CLI_PROXY_BILLING_URL).pipe(
+      HttpClientRequest.setHeaders({
+        Authorization: `Bearer ${token}`,
+        "X-XAI-Token-Auth": "xai-grok-cli",
+        Accept: "application/json",
+      }),
+    );
+    return yield* httpClient.value.execute(request).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.json),
+      Effect.timeout("10 seconds"),
+      Effect.option,
+      Effect.map(Option.getOrUndefined),
+    );
+  });
 
 export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(function* (
   grokSettings: GrokSettings,
@@ -462,11 +525,12 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
   );
 
   const acpExit = yield* discoverGrokModelsViaAcpInitialize(grokSettings, environment).pipe(
-    Effect.timeoutOption(GROK_ACP_INITIALIZE_TIMEOUT_MS),
+    Effect.timeoutOption(GROK_ACP_INITIALIZE_TIMEOUT_MS + GROK_ACP_BILLING_TIMEOUT_MS),
     Effect.exit,
   );
-  const acpModels = Exit.isSuccess(acpExit) ? Option.getOrElse(acpExit.value, () => []) : [];
-  const acpFailed = Exit.isFailure(acpExit) || Option.isNone(acpExit.value);
+  const acpResult = Exit.isSuccess(acpExit) ? Option.getOrUndefined(acpExit.value) : undefined;
+  const acpModels = acpResult?.models ?? [];
+  const acpFailed = Exit.isFailure(acpExit) || acpResult === undefined;
   if (acpFailed) {
     yield* Effect.logWarning("Grok ACP initialize probe failed or timed out.", {
       errorTag: Exit.isFailure(acpExit) ? causeErrorTag(acpExit.cause) : "Timeout",
@@ -496,6 +560,24 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
     });
   }
 
+  const usageLimits: ServerProviderUsageLimits =
+    auth.type === "api_key"
+      ? makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "unsupported",
+          message: "API-key Grok accounts do not report subscription limits.",
+        })
+      : (grokBillingToLimits({ payload: acpResult?.billingPayload, checkedAt }) ??
+        grokBillingToLimits({
+          payload: yield* fetchGrokCliProxyBilling(environment),
+          checkedAt,
+        }) ??
+        makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message: "Could not read Grok subscription usage.",
+        }));
+
   return buildServerProvider({
     presentation: GROK_PRESENTATION,
     enabled: grokSettings.enabled,
@@ -509,6 +591,7 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
       // A failed metadata probe degrades the model picker, it does not make chats fail.
       status: acpFailed ? "warning" : "ready",
       auth,
+      usageLimits,
       ...(acpFailed
         ? {
             message:
