@@ -366,51 +366,14 @@ jobs:
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # node-pty publishes no Linux prebuild; the WSL backend needs a Linux pty.node
-  # shipped inside the Windows installer (same approach as upstream release.yml).
-  build_wsl_node_pty:
-    name: Build WSL node-pty (linux-x64)
-    needs: meta
-    if: github.repository_owner != 'pingdotgg'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=t3...
-
-      - name: Build node-pty linux-x64 prebuild
-        shell: bash
-        run: |
-          set -euo pipefail
-          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
-          pty_dir="$(dirname "$pty_pkg")"
-          ( cd "$pty_dir" && npx --yes node-gyp rebuild )
-          mkdir -p wsl-prebuild
-          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
-          file wsl-prebuild/pty.node
-
-      - name: Upload node-pty linux-x64 prebuild
-        uses: actions/upload-artifact@v7
-        with:
-          name: wsl-node-pty-x64
-          path: wsl-prebuild/pty.node
-          if-no-files-found: error
-
+  # Official Windows builds embed a Linux CLI archive as the WSL runtime.
+  # Personal releases skip that archive (it needs the Rust resource-monitor
+  # and `scripts/build-cli-archive.ts`); the NSIS app still runs a local
+  # Windows backend.
   build_windows:
     name: Build Windows NSIS + publish release
-    needs: [meta, publish_cli, build_wsl_node_pty]
-    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.build_wsl_node_pty.result == 'success' && (needs.publish_cli.result == 'success' || needs.publish_cli.result == 'skipped') }}
+    needs: [meta, publish_cli]
+    if: ${{ !cancelled() && needs.meta.result == 'success' && (needs.publish_cli.result == 'success' || needs.publish_cli.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 90
     permissions:
@@ -441,12 +404,6 @@ jobs:
 
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.meta.outputs.version }}"
-
-      - name: Download WSL node-pty prebuild
-        uses: actions/download-artifact@v7
-        with:
-          name: wsl-node-pty-x64
-          path: wsl-prebuild
 
       - name: Install Spectre-mitigated MSVC libs
         shell: pwsh
@@ -480,7 +437,6 @@ jobs:
             --target nsis \
             --arch x64 \
             --build-version "${{ needs.meta.outputs.version }}" \
-            --wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node" \
             --verbose
 
       - name: Collect release assets

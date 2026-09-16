@@ -68,6 +68,10 @@ and add a Trusted Publisher:
   the Clerk sheet. Google OAuth is kept in an in-app window so the `t3code://` callback is not
   stolen by official T3 Code. Official passkeys stay tied to `com.t3tools.t3code`.
 - Personal npm builds do not bundle resource-monitor binaries.
+- Personal Windows NSIS builds do not embed a Linux WSL runtime archive. Use a
+  local Windows backend, or install `@adithyasak/t3` on a Linux host and connect
+  remotely. Official releases ship `t3-<version>-linux-x64.tar.gz` inside the
+  installer for WSL.
 - `node-pty` ships no Linux prebuilds. On Linux the CLI compiles it at install time. If you see
   `Failed to load node-pty for linux-x64`, install `python3`, `make`, and `g++`, prefer Node 24 LTS
   over Node 26, then `npm rebuild node-pty` inside the installed package. Official `t3` has the same
