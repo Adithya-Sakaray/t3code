@@ -55,6 +55,10 @@ const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
 // the complete install transaction across every caller in this process.
 const pinnedRuntimeInstallLock = Semaphore.makeUnsafe(1);
 
+export function pinnedRuntimeVersionsDir(path: Path.Path, baseDir: string): string {
+  return path.join(baseDir, PINNED_RUNTIME_DIR, "versions");
+}
+
 export interface PinnedRuntimePaths {
   readonly versionDir: string;
   /** npm layout: `<cli-package>/dist/bin.mjs`. Its existence marks a runtime as present. */
@@ -81,7 +85,7 @@ export function pinnedRuntimePaths(
     platformOrPackageName !== undefined && NODE_PROCESS_PLATFORMS.has(platformOrPackageName)
       ? packageName
       : (packageName ?? platformOrPackageName);
-  const versionDir = path.join(baseDir, PINNED_RUNTIME_DIR, "versions", version);
+  const versionDir = path.join(pinnedRuntimeVersionsDir(path, baseDir), version);
   return {
     versionDir,
     entryPath: path.join(
