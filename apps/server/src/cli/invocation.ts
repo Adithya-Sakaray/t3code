@@ -53,7 +53,8 @@ function detectCliRunner(entryPath: string): CliRunner | null {
  */
 function suggestedPackageSpec(version: string): string {
   const packageName = resolveCliPackageName();
-  return version.includes("-nightly.") ? formatCliPackageSpec(packageName, "nightly") : packageName;
+  const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
+  return channel === undefined ? packageName : formatCliPackageSpec(packageName, channel);
 }
 
 /**

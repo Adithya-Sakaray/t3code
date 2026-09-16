@@ -13,7 +13,23 @@ import {
   normalizeCliPackageName,
 } from "@t3tools/shared/cliPackage";
 
+import type { HttpClient } from "effect/unstable/http";
+
 import * as ProcessRunner from "../processRunner.ts";
+
+const NODE_PROCESS_PLATFORMS = new Set<string>([
+  "aix",
+  "android",
+  "darwin",
+  "freebsd",
+  "haiku",
+  "linux",
+  "openbsd",
+  "sunos",
+  "win32",
+  "cygwin",
+  "netbsd",
+]);
 
 declare const __T3CODE_CLI_PACKAGE_NAME__: string | undefined;
 
@@ -41,23 +57,37 @@ const pinnedRuntimeInstallLock = Semaphore.makeUnsafe(1);
 
 export interface PinnedRuntimePaths {
   readonly versionDir: string;
+  /** npm layout: `<cli-package>/dist/bin.mjs`. Its existence marks a runtime as present. */
   readonly entryPath: string;
   readonly sentinelPath: string;
+}
+
+/** The exact command that runs a pinned npm runtime. */
+export function pinnedRuntimeCommand(paths: PinnedRuntimePaths): {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+} {
+  return { command: paths.entryPath, args: [] };
 }
 
 export function pinnedRuntimePaths(
   path: Path.Path,
   baseDir: string,
   version: string,
+  platformOrPackageName?: string,
   packageName?: string,
 ): PinnedRuntimePaths {
+  const resolvedPackageName =
+    platformOrPackageName !== undefined && NODE_PROCESS_PLATFORMS.has(platformOrPackageName)
+      ? packageName
+      : (packageName ?? platformOrPackageName);
   const versionDir = path.join(baseDir, PINNED_RUNTIME_DIR, "versions", version);
   return {
     versionDir,
     entryPath: path.join(
       versionDir,
       "node_modules",
-      ...cliPackageNodeModulesSegments(resolveCliPackageName(packageName)),
+      ...cliPackageNodeModulesSegments(resolveCliPackageName(resolvedPackageName)),
       "dist",
       "bin.mjs",
     ),
@@ -65,7 +95,7 @@ export function pinnedRuntimePaths(
   };
 }
 
-export class PinnedRuntimeInstallError extends Schema.TaggedErrorClass<PinnedRuntimeInstallError>()(
+export class PinnedRuntimeInstallError extends Schema.TaggedError<PinnedRuntimeInstallError>()(
   "PinnedRuntimeInstallError",
   {
     step: Schema.String,
@@ -82,7 +112,7 @@ export class PinnedRuntimeInstallError extends Schema.TaggedErrorClass<PinnedRun
   }
 }
 
-export class PinnedRuntimePreflightBlockedError extends Schema.TaggedErrorClass<PinnedRuntimePreflightBlockedError>()(
+export class PinnedRuntimePreflightBlockedError extends Schema.TaggedError<PinnedRuntimePreflightBlockedError>()(
   "PinnedRuntimePreflightBlockedError",
   {
     version: Schema.String,
@@ -111,6 +141,10 @@ interface PinnedRuntimeInstallInput {
   readonly validate: (
     paths: PinnedRuntimePaths,
   ) => Effect.Effect<void, PinnedRuntimeInstallError | PinnedRuntimePreflightBlockedError>;
+  readonly platform?: NodeJS.Platform;
+  readonly arch?: string;
+  readonly httpClient?: HttpClient.HttpClient;
+  readonly releaseBaseUrl?: string | undefined;
 }
 
 const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(function* (
