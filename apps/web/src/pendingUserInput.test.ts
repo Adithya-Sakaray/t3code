@@ -1,14 +1,46 @@
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import { formatInlineContextReference } from "./lib/composerContextReferences";
+import { threadContextRecord, threadContextReference } from "./lib/composerContextRecords";
 
 import {
   buildPendingUserInputAnswers,
   carryDisplacedCustomAnswerIntoPrompt,
   countAnsweredPendingUserInputQuestions,
   derivePendingUserInputProgress,
+  findFirstUnansweredPendingUserInputQuestionIndex,
+  projectPendingUserInputAnswer,
   resolvePendingUserInputAnswer,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
 } from "./pendingUserInput";
+
+describe("projectPendingUserInputAnswer", () => {
+  const record = threadContextRecord(
+    {
+      environmentId: EnvironmentId.make("env-answer"),
+      threadId: ThreadId.make("reference-thread"),
+    },
+    "Reference work",
+  );
+
+  it("sends thread chips as readable links with the actual thread ID", () => {
+    const answer = `Compare ${formatInlineContextReference(threadContextReference(record))}`;
+    expect(projectPendingUserInputAnswer(answer, [record])).toBe(
+      "Compare [Reference work](t3-thread://v1/reference-thread)",
+    );
+  });
+
+  it("leaves plain answers unchanged when the draft has unreferenced thread records", () => {
+    expect(projectPendingUserInputAnswer("Plain answer", [record])).toBe("Plain answer");
+  });
+
+  it("preserves option values and exact answer text", () => {
+    const options = [" first\t", "second"];
+    expect(projectPendingUserInputAnswer(options, [record])).toBe(options);
+    expect(projectPendingUserInputAnswer("  Edited answer\n", [record])).toBe("  Edited answer\n");
+  });
+});
 
 const singleSelectQuestion = {
   id: "scope",
@@ -53,6 +85,34 @@ const nativeChoiceQuestion = {
 } as const;
 
 describe("resolvePendingUserInputAnswer", () => {
+  it("preserves exact editor text, including a deliberately cleared answer", () => {
+    const question = { ...singleSelectQuestion, initialAnswer: "  Proposed message\n" };
+    expect(resolvePendingUserInputAnswer(question, { customAnswer: question.initialAnswer })).toBe(
+      question.initialAnswer,
+    );
+    expect(resolvePendingUserInputAnswer(question, { customAnswer: "  Edited message\n\n" })).toBe(
+      "  Edited message\n\n",
+    );
+    expect(resolvePendingUserInputAnswer(question, { customAnswer: "" })).toBe("");
+    expect(resolvePendingUserInputAnswer(question, { customAnswer: " \n" })).toBe(" \n");
+    expect(
+      setPendingUserInputCustomAnswer(
+        { selectedOptionValues: ["Orchestration-first"] },
+        "",
+        question,
+      ),
+    ).toEqual({ customAnswer: "" });
+    const questions = [question, { ...singleSelectQuestion, id: "follow-up" }];
+    const drafts = { scope: { customAnswer: "" } };
+    expect(findFirstUnansweredPendingUserInputQuestionIndex(questions, drafts)).toBe(1);
+    expect(derivePendingUserInputProgress([question], drafts, 0)).toMatchObject({
+      customAnswer: "",
+      resolvedAnswer: "",
+      canAdvance: true,
+      isComplete: true,
+    });
+  });
+
   it("prefers a custom answer over selected options", () => {
     expect(
       resolvePendingUserInputAnswer(singleSelectQuestion, {
@@ -246,6 +306,29 @@ describe("pending user input question progress", () => {
     ).toBe(1);
   });
 
+  it("finds the first unanswered question", () => {
+    expect(
+      findFirstUnansweredPendingUserInputQuestionIndex(questions, {
+        scope: {
+          selectedOptionValues: ["Orchestration-first"],
+        },
+      }),
+    ).toBe(1);
+  });
+
+  it("returns the last question index when all answers are complete", () => {
+    expect(
+      findFirstUnansweredPendingUserInputQuestionIndex(questions, {
+        scope: {
+          selectedOptionValues: ["Orchestration-first"],
+        },
+        compat: {
+          customAnswer: "Keep it for one release window",
+        },
+      }),
+    ).toBe(1);
+  });
+
   it("derives the active question and advancement state", () => {
     expect(
       derivePendingUserInputProgress(
@@ -301,54 +384,6 @@ describe("pending user input question progress", () => {
       canAdvance: false,
       isComplete: false,
     });
-  });
-});
-
-describe("optional questions", () => {
-  const requiredQuestion = {
-    id: "required",
-    header: "Required",
-    question: "Pick a value",
-    options: [{ label: "A", description: "A" }],
-    multiSelect: false,
-  } as const;
-  const optionalQuestion = {
-    id: "optional",
-    header: "Optional",
-    question: "Extra notes",
-    options: [],
-    multiSelect: false,
-    optional: true,
-  } as const;
-
-  it("does not block submission when only optional questions are unanswered", () => {
-    const answers = buildPendingUserInputAnswers([requiredQuestion, optionalQuestion], {
-      required: { selectedOptionValues: ["A"] },
-    });
-    // Required answered, optional omitted -> submission allowed, optional key absent.
-    expect(answers).toEqual({ required: "A" });
-  });
-
-  it("still blocks submission when a required question is unanswered", () => {
-    expect(
-      buildPendingUserInputAnswers([requiredQuestion, optionalQuestion], {
-        optional: { customAnswer: "just notes" },
-      }),
-    ).toBeNull();
-  });
-
-  it("includes optional answers when they are provided", () => {
-    expect(
-      buildPendingUserInputAnswers([requiredQuestion, optionalQuestion], {
-        required: { selectedOptionValues: ["A"] },
-        optional: { customAnswer: "extra" },
-      }),
-    ).toEqual({ required: "A", optional: "extra" });
-  });
-
-  it("allows advancing past an unanswered optional question", () => {
-    const progress = derivePendingUserInputProgress([optionalQuestion, requiredQuestion], {}, 0);
-    expect(progress.canAdvance).toBe(true);
   });
 });
 

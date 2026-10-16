@@ -54,6 +54,8 @@ describe("isEntrypoint", () => {
       NodeFS.writeFileSync(real, "");
       NodeFS.symlinkSync(real, link);
 
+      // Node resolves the module URL to the real path, and on macOS the temp
+      // directory itself sits behind a symlink (`/var` -> `/private/var`).
       expect(
         isEntrypoint({
           moduleUrl: NodeURL.pathToFileURL(NodeFS.realpathSync(real)).href,

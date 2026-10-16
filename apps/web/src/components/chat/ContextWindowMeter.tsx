@@ -1,11 +1,10 @@
 import { Button } from "../ui/button";
-import {
-  type ContextWindowSnapshot,
-  formatContextWindowTokens,
-  formatCreditsUsed,
-} from "~/lib/contextWindow";
+import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { formatContextWindowCompactionMessage } from "./ContextWindowMeter.logic";
+import {
+  formatContextWindowCompactionMessage,
+  formatContextWindowCost,
+} from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
@@ -34,8 +33,6 @@ export function ContextWindowMeter(props: {
   const dashOffset = circumference * (1 - normalizedPercentage / 100);
   const totalProcessedTokens = usage.totalProcessedTokens ?? null;
   const showTotalProcessed = totalProcessedTokens !== null && totalProcessedTokens > 0;
-  const creditsLabel = formatCreditsUsed(usage.creditsUsed);
-  const creditsUnit = usage.creditsUnit?.trim() || "credits";
   const isOverloaded = normalizedPercentage > 90;
   const usageColor = isOverloaded
     ? "var(--color-error)"
@@ -139,11 +136,11 @@ export function ContextWindowMeter(props: {
               </span>
             </div>
           ) : null}
-          {creditsLabel !== null ? (
-            <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
-              <span className="text-muted-foreground/60">Last turn</span>
-              <span className="font-medium tabular-nums text-muted-foreground/80">
-                {creditsLabel} {creditsUnit}
+          {usage.cost != null ? (
+            <div className="flex items-center justify-between gap-3 text-2xs leading-4">
+              <span className="text-secondary-label">Cost</span>
+              <span className="font-medium tabular-nums text-secondary-label">
+                {formatContextWindowCost(usage.cost)}
               </span>
             </div>
           ) : null}

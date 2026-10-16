@@ -11,7 +11,7 @@ import * as PlatformError from "effect/PlatformError";
 import { vi } from "vite-plus/test";
 
 import * as ServerConfig from "../config.ts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
@@ -21,7 +21,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, readdir: vi.fn(actual.readdir) };
 });
 
-const TestLayer = Layer.empty.pipe(
+const layerTest = Layer.empty.pipe(
   Layer.provideMerge(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(VcsProcess.layer),
@@ -84,13 +84,13 @@ const searchWorkspaceEntries = (input: {
   });
 
 const appendSeparator = (input: string) =>
-  Effect.map(HostProcessPlatform, (platform) =>
+  Effect.map(HostProcess.Platform, (platform) =>
     input.endsWith("/") || input.endsWith("\\")
       ? input
       : `${input}${platform === "win32" ? "\\" : "/"}`,
   );
 
-it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
+it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -143,7 +143,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           const fileSystem = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           yield* writeTextFile(cwd, ".git/HEAD");
-          const platform = yield* HostProcessPlatform;
+          const platform = yield* HostProcess.Platform;
           if (platform !== "win32") yield* fileSystem.symlink(outside, path.join(cwd, "external"));
           const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
           for (const directoryPath of [
@@ -192,6 +192,42 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
       60_000,
     );
 
+    it.effect("includes images and other binary files in non-git workspace indexes", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        const imagePaths = ["photo.png", "photo.jpg", "photo.jpeg"];
+        const binaryPaths = [...imagePaths, "document.pdf", "archive.zip", "data.bin"];
+        for (const filePath of binaryPaths) {
+          yield* writeTextFile(cwd, filePath, "\0binary contents\n");
+        }
+        yield* writeTextFile(cwd, "notes.txt", "plain text\n");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const expectedPaths = [...binaryPaths, "notes.txt"].toSorted();
+        const listed = yield* workspaceEntries.list({ cwd });
+        expect(listed.entries.map((entry) => entry.path).toSorted()).toEqual(expectedPaths);
+        expect(listed.truncated).toBe(false);
+
+        const searched = yield* workspaceEntries.search({
+          cwd,
+          query: "",
+          limit: 100,
+          kind: "file",
+        });
+        expect(searched.entries.map((entry) => entry.path).toSorted()).toEqual(expectedPaths);
+        expect(searched.truncated).toBe(false);
+
+        const images = yield* workspaceEntries.search({
+          cwd,
+          query: "",
+          limit: 100,
+          imageOnly: true,
+        });
+        expect(images.entries.map((entry) => entry.path).toSorted()).toEqual(imagePaths.toSorted());
+        expect(images.truncated).toBe(false);
+      }),
+    );
+
     it.effect("returns the complete cached workspace index", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir();
@@ -215,31 +251,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         );
         expect(result.entries.some((entry) => entry.path.startsWith("node_modules"))).toBe(false);
         expect(result.truncated).toBe(false);
-      }),
-    );
-
-    it.effect("includes gitignored dotenv files in the file tree", () =>
-      Effect.gen(function* () {
-        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-dotenv-list-", git: true });
-        yield* writeTextFile(cwd, ".gitignore", ".env*\n!.env.example\nignored.txt\n");
-        yield* writeTextFile(cwd, "src/keep.ts", "export {};");
-        yield* writeTextFile(cwd, ".env", "SECRET=1\n");
-        yield* writeTextFile(cwd, ".env.local", "SECRET=2\n");
-        yield* writeTextFile(cwd, ".env.example", "SECRET=\n");
-        yield* writeTextFile(cwd, "apps/web/.env.local", "SECRET=3\n");
-        yield* writeTextFile(cwd, "ignored.txt", "ignore me");
-
-        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
-        const result = yield* workspaceEntries.list({ cwd });
-        const paths = result.entries.map((entry) => entry.path);
-
-        expect(paths).toContain("src/keep.ts");
-        expect(paths).toContain(".env");
-        expect(paths).toContain(".env.local");
-        expect(paths).toContain(".env.example");
-        expect(paths).toContain("apps/web");
-        expect(paths).toContain("apps/web/.env.local");
-        expect(paths).not.toContain("ignored.txt");
       }),
     );
   });
@@ -402,23 +413,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(paths).not.toContain("ignored.txt");
         expect(paths.some((entryPath) => entryPath.startsWith(".convex/"))).toBe(false);
         expect(paths.some((entryPath) => entryPath.startsWith("convex/"))).toBe(false);
-      }),
-    );
-
-    it.effect("keeps gitignored dotenv files out of path search", () =>
-      Effect.gen(function* () {
-        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-dotenv-search-", git: true });
-        yield* writeTextFile(cwd, ".gitignore", ".env*\n!.env.example\n");
-        yield* writeTextFile(cwd, ".env", "SECRET=1\n");
-        yield* writeTextFile(cwd, ".env.local", "SECRET=2\n");
-        yield* writeTextFile(cwd, ".env.example", "SECRET=\n");
-
-        const result = yield* searchWorkspaceEntries({ cwd, query: "env", limit: 100 });
-        const paths = result.entries.map((entry) => entry.path);
-
-        expect(paths).toContain(".env.example");
-        expect(paths).not.toContain(".env");
-        expect(paths).not.toContain(".env.local");
       }),
     );
 

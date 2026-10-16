@@ -13,7 +13,7 @@ import {
   normalizeCliPackageName,
 } from "@t3tools/shared/cliPackage";
 
-import type { HttpClient } from "effect/unstable/http";
+import type { HttpClient } from "effect/http";
 
 import * as ProcessRunner from "../processRunner.ts";
 

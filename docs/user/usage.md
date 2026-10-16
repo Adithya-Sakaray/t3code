@@ -6,13 +6,12 @@ desktop when the terminal is not focused. Customize `usage.open` in
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, Grok Build, Kiro CLI, OpenCode, Antigravity, and Cursor history from your connected
-environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
-cost. These estimates are not your subscription bill.
-
-Kiro CLI bills in credits; the page converts those credits at the public overage rate
-($0.04 per credit). Kiro often leaves token counters at zero, so Kiro rows may show cost with
-little or no token volume.
+**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, and Cursor history
+from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
+cost, split by token type and by speed. These estimates are not your subscription bill.
+**Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
+split, such as a provider-reported cost for a model without public rates, shows as **Other**.
+Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
 record are missing from the totals.
@@ -31,16 +30,21 @@ you to allow access on the server Mac.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
 the account's home setting or its `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, or `GROK_HOME` environment
-variable. Use absolute paths or `~/` paths in the account's environment settings; relative
-environment paths depend on each project's working directory and cannot be reliably discovered
-by Usage. Accounts sharing a history directory count once.
+variable. Pi reads `~/.pi/agent/sessions`, or the `sessions` directory under
+`PI_CODING_AGENT_DIR`. Set `PI_CODING_AGENT_SESSION_DIR` to read a different session directory.
+To include sessions saved through `--session-dir` or Pi's `sessionDir` setting, set this environment
+variable to the same directory. Pi includes recorded tool and summary costs under `Tools/summaries`.
+Use absolute paths or `~/` paths in the account's environment settings; relative environment paths
+depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
+sharing a history directory count once.
 
 When your app and server support different providers, usage totals may cover only the providers
 your app understands. Update the app to include newly supported providers.
 
 On web and desktop, use the environment dropdown to filter costs, tokens, and limits. All
 environments are selected by default. The dropdown shows which environments are still scanning;
-results appear as each one responds.
+results appear as each one responds, and figures still updating are dimmed. Cursor shows its last
+saved totals first, then updates them when Cursor's API responds.
 
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
@@ -51,7 +55,8 @@ On web or desktop, open the environment dropdown on **Usage**, then choose **Mod
 edit, or reset a model's estimated price. **Apply to** starts with your current Usage filter;
 choose all environments or select individual destinations. Enter the exact model ID and USD
 rates per million input and output tokens. You can enter any model ID, including models
-without public pricing.
+without public pricing. When a model on **Usage** has no known price, select it under
+**Breakdown** and choose **Set price** to open this table with that model added.
 
 Cache read and cache write rates are optional and use the input rate when blank. Enter `0` for
 tokens that are free. Saved prices replace automatic pricing for all of that environment's
@@ -61,6 +66,11 @@ edited rows. Untouched cells keep each environment's rate. Select one environmen
 prices. **Reset to automatic** marks a model's override for removal when you save; you can undo
 it before saving.
 
+To count one model as another, such as a preview model under its released name, enter the target
+model ID under **Map to**. The mapped model no longer appears on **Usage**: its tokens and cost
+move to the target model and use the target's price. Clear **Map to** or reset the row to show
+the model on its own again.
+
 Each destination reports whether the change saved. Offline or unavailable environments are
 marked **Not saved**. Reconnect them and choose **Retry failed saves** to finish the same change
 without writing again to environments that already saved. Changes are not queued after you close
@@ -68,13 +78,13 @@ the dialog.
 
 ## Track subscription limits
 
-**Usage → Limits** pools every subscription account it can see per provider, so with several Codex,
-Claude, Grok, Kiro, or Cursor accounts across your environments and hubs you read one number per
-window rather than a list. Each window card shows how much of the pool is left and a bar with one
-segment per account, kept in the same column across windows. Accounts are ordered by their 5-hour
-reset, soonest first, or by the first available window when no account reports a 5-hour limit. A gap
-means the account does not report that window. When the provider reports reset times, the card also
-says when the next reset lands and how much it hands back. The hatched
+**Usage → Limits** pools every subscription account it can see per provider, so with several Codex
+or Claude accounts across your environments and hubs you read one number per window rather than a
+list. Each window card shows how much of the pool is left and a bar with one segment per account,
+kept in the same column across windows. Accounts are ordered by their 5-hour reset, soonest
+first, or by the first available window when no account reports a 5-hour limit. A gap means the
+account does not report that window. When the provider reports reset times, the card also says
+when the next reset lands and how much it hands back. The hatched
 part of a segment is what that reset restores. Tap a segment or account row for the account's plan,
 where it is signed in, and its reset time. On web, you can hover too. Codex and Claude accounts
 with banked reset credits show a ticket count and the **Use reset** action in the account details.
@@ -96,7 +106,9 @@ anything. The command is offered only for providers that appear under **Usage �
 
 OpenCode Go reports its session, weekly, and monthly allowance when OpenCode runs locally in
 the environment. T3 cannot report limits for external OpenCode servers because their credentials
-belong to the remote server. Cursor reports
+belong to the remote server. Limits need an OpenCode Go API key. A Console sign-in alone
+does not report them. Add your Go API key as `OPENCODE_API_KEY` in the OpenCode instance's
+**Environment variables**, then refresh provider status. Cursor reports
 its monthly allowance, including separate Auto and API usage, using the CLI login or
 `CURSOR_AUTH_TOKEN`. On macOS, this includes the default Keychain login after you enable Cursor
 usage. Keychain login is used for limits only with Cursor's default API endpoint. If you configure
@@ -107,10 +119,7 @@ after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custo
 or endpoint configurations do not report subscription limits.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
-using a proxy through `ANTHROPIC_AUTH_TOKEN`, and to Grok when `XAI_API_KEY` is set instead of
-`grok login`. Kiro limits come from the CLI `/usage` command over ACP. Grok prefers the CLI
-billing method, then the signed-in Grok CLI token. Cursor uses the Agent CLI login to read
-included usage from Cursor's dashboard.
+using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 ## Connect a CLIProxyAPI hub
 
