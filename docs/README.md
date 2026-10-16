@@ -55,6 +55,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Devices](./internals/devices.md)
 - [Voice input](./internals/voice-input.md)
 - [Personal fork releases](./internals/personal-release.md)
+- [Personal fork maintenance](./internals/personal-fork.md)
 
 ### Runbooks
 

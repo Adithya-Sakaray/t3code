@@ -1,7 +1,8 @@
 # Personal fork releases
 
 > Maintainer notes for `Adithya-Sakaray/t3code`. Official release process:
-> [Release Checklist](../operations/release.md).
+> [Release Checklist](../operations/release.md). What the fork carries and how to sync upstream:
+> [Personal fork maintenance](./personal-fork.md).
 
 One workflow ships both artifacts at the **same version**:
 
@@ -91,4 +92,6 @@ and add a Trusted Publisher:
   After this ships, run `npx @adithyasak/t3@<version> service update` so the boot
   unit points at the new runtime. A unit that still points at a standalone
   `service-launcher.mjs` will fail with "runtime is missing or incomplete."
-- Kiro and the rest of the personal-fork provider work are unchanged by this distribution path.
+- Each release is live for everyone at once: npm publishes it as `latest` and every T3 Code Adi
+  install is offered it. Pass the version explicitly; at an upstream tag every `package.json` still
+  carries the previous version, so an empty input would produce a stale `-adi.N`.

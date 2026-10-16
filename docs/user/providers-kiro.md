@@ -36,11 +36,13 @@ the provider's settings to check again.
 
 ## Credits and usage
 
-With **Settings → General → Context window indicator** on, the composer's context meter shows how
+With **Settings → General → Legacy features → Context window indicator** on, the composer's context meter shows how
 full the conversation's context is and the credits the thread has used, including credits used by
 its subagents. **Usage → Limits** shows your monthly
 credit allowance; it updates after each turn. The Usage page includes Kiro history from every
-instance's `KIRO_HOME`, priced at Kiro's overage rate.
+instance's `KIRO_HOME`, priced at Kiro's overage rate. Official T3 Code apps connected to your
+server show every other provider's history but not Kiro's; use T3 Code Adi or the server's own web
+app to see it.
 
 ## Subagents
 
@@ -57,3 +59,13 @@ Kiro enforces these itself:
 - **Full access** trusts every tool.
 
 Changing the permission mode restarts the Kiro session for that thread, keeping the conversation.
+
+## Official T3 Code apps
+
+Kiro runs on the server, so any T3 Code app can use it once it connects to a server running T3
+Code Adi or `@adithyasak/t3`, including [app.t3.codes](https://app.t3.codes) and the official
+mobile app. Servers the official apps start themselves have no Kiro: the official desktop app's own
+server, and SSH environments added from the official desktop app. Add SSH environments from T3 Code
+Adi instead. Update a server with `npm install -g @adithyasak/t3@<version>` or
+`t3 update --version <version>`; official apps offer upstream versions, which this server does not
+install.
