@@ -226,6 +226,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageService from "./usage/UsageService.ts";
+import { usageSummaryForClient } from "./usage/forkClientUsage.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
@@ -2441,7 +2442,10 @@ const layerWsRpc = (
           processResourceMonitor.readHistory(input),
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>
           resourceTelemetry.readHistory(input),
-        [WS_METHODS.serverGetUsageSummary]: (input) => usage.readSummary(input),
+        [WS_METHODS.serverGetUsageSummary]: (input) =>
+          usage
+            .readSummary(input)
+            .pipe(Effect.map((summary) => usageSummaryForClient(summary, clientOrigin.appVersion))),
         [WS_METHODS.serverRefreshUsageRates]: (_input) => usage.refreshRates,
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,
         [WS_METHODS.serverCheckOtlpEndpoint]: (input) => otlpEndpointCheck.check(input),
