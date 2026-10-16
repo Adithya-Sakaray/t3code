@@ -6,6 +6,7 @@ import {
   KiroSubagentListUpdate,
   KiroUsageData,
   kiroContextUsageFromMetadata,
+  kiroDropSummaryEcho,
   kiroEffortLevelsFromCommand,
   kiroModelsFromList,
   kiroSubagentUpdateFromRoster,
@@ -211,5 +212,41 @@ describe("kiroModelsFromList", () => {
       ["auto", 1000000],
       ["claude-haiku-4.5", 200000],
     ]);
+  });
+});
+
+describe("kiroDropSummaryEcho", () => {
+  const CHILD = "c770d0de-3b54-4903-8c87-164dd5972b6d";
+  const chunk = (text: string) =>
+    ({
+      sessionId: CHILD,
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+    }) as const;
+
+  it("blanks the answer a crew child repeats after its summary", () => {
+    const summarized = new Set<string>();
+    expect(kiroDropSummaryEcho(summarized, chunk("The directory contains two files."))).toEqual(
+      chunk("The directory contains two files."),
+    );
+    // Recorded from kiro-cli 2.19.1: the child's summary tool call.
+    kiroDropSummaryEcho(summarized, {
+      sessionId: CHILD,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "toolu_bdrk_01BCJn7baVkfBhdHKYtZ3g2D",
+        title: "Summarizing",
+        rawInput: { taskResult: "2 files" },
+        _meta: { kiro: { toolName: "summary" } },
+      },
+    } as never);
+    expect(
+      kiroDropSummaryEcho(summarized, chunk("The current working directory contains 2 files")),
+    ).toEqual(chunk(""));
+  });
+
+  it("leaves other sessions' text alone", () => {
+    const summarized = new Set([CHILD]);
+    const root = { ...chunk("SUBAGENT_DONE"), sessionId: "root" };
+    expect(kiroDropSummaryEcho(summarized, root)).toBe(root);
   });
 });

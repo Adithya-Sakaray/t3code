@@ -12,6 +12,7 @@
  */
 import type { ServerProviderUsageLimits, ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 import type { AcpAdapterV2SubagentUpdate } from "@t3tools/provider-acp/server/adapter";
+import type * as EffectAcpSchema from "effect-acp/compat";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -288,4 +289,37 @@ function kiroResetDate(value: string | undefined): string | undefined {
   // Kiro reports a bare UTC date for the billing cycle reset.
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? `${trimmed}T00:00:00Z` : trimmed;
   return Option.getOrUndefined(Option.map(DateTime.make(iso), DateTime.formatIso));
+}
+
+function kiroToolName(update: EffectAcpSchema.SessionNotification["update"]): string | undefined {
+  if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") {
+    return undefined;
+  }
+  const kiro = (update._meta as { readonly kiro?: { readonly toolName?: unknown } } | null)?.kiro;
+  return typeof kiro?.toolName === "string" ? kiro.toolName : undefined;
+}
+
+/**
+ * A crew child answers, reports that answer through its `summary` tool, then
+ * repeats it as text. The repeat would run into the first answer in the
+ * subagent's message, so text a session streams after its summary is blanked.
+ * `summarizedSessions` remembers which sessions have summarized.
+ */
+export function kiroDropSummaryEcho(
+  summarizedSessions: Set<string>,
+  notification: EffectAcpSchema.SessionNotification,
+): EffectAcpSchema.SessionNotification {
+  const { update } = notification;
+  if (kiroToolName(update) === "summary") {
+    summarizedSessions.add(notification.sessionId);
+    return notification;
+  }
+  if (
+    update.sessionUpdate === "agent_message_chunk" &&
+    update.content.type === "text" &&
+    summarizedSessions.has(notification.sessionId)
+  ) {
+    return { ...notification, update: { ...update, content: { ...update.content, text: "" } } };
+  }
+  return notification;
 }

@@ -53,6 +53,7 @@ import {
   KiroSubagentListUpdate,
   KiroUsageData,
   kiroContextUsageFromMetadata,
+  kiroDropSummaryEcho,
   kiroMeteredCredits,
   kiroSubagentUpdateFromRoster,
   kiroUsageLimitsFromData,
@@ -122,6 +123,8 @@ interface KiroLiveState {
   readonly modelBySession: Map<string, string>;
   /** Last roster status projected per child session, to skip repeats. */
   readonly rosterStatus: Map<string, string>;
+  /** Crew child sessions that have reported their result through `summary`. */
+  readonly summarizedSessions: Set<string>;
   lastUsageRefreshMs: number;
 }
 
@@ -273,6 +276,7 @@ export function makeKiroAcpAdapterFlavor(
     contextWindows: new Map(),
     modelBySession: new Map(),
     rosterStatus: new Map(),
+    summarizedSessions: new Set(),
     lastUsageRefreshMs: 0,
   },
 ): AcpAdapterV2Flavor {
@@ -292,6 +296,8 @@ export function makeKiroAcpAdapterFlavor(
           runtimeMode: kiroLaunchRuntimeMode(runtimePolicy),
         })),
     registerExtensions: registerKiroExtensions(state, options),
+    normalizeSessionUpdate: (notification) =>
+      kiroDropSummaryEcho(state.summarizedSessions, notification),
     // Crew children are reported by the roster; defining this routes their
     // sessions' updates into the subagent threads. Kiro's spawn tool itself
     // stays an ordinary tool row.
