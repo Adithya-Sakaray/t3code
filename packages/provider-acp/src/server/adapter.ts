@@ -4162,15 +4162,19 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           yield* emitProviderEvent({ type: "provider_thread.updated", driver, providerThread });
         });
 
-        /** The usage a session last reported, falling back to what its provider thread persisted. */
+        /**
+         * The usage a session last reported, falling back to what its provider
+         * thread persisted. `undefined` while the session is not yet tied to a
+         * turn or provider thread (a `session/load` replay): its persisted usage
+         * is unknown then, so folding into an empty baseline would drop it.
+         */
         const currentSessionContextUsage = Effect.fnUntraced(function* (sessionId: string) {
           const remembered = (yield* Ref.get(contextUsageBySessionId)).get(sessionId);
           if (remembered !== undefined) return remembered;
           const context = yield* Ref.get(activeTurn);
           if (context?.nativeThreadId === sessionId) return context.contextUsage;
-          return (
-            (yield* Ref.get(providerThreadByNativeSessionId)).get(sessionId)?.contextUsage ?? null
-          );
+          const providerThread = (yield* Ref.get(providerThreadByNativeSessionId)).get(sessionId);
+          return providerThread === undefined ? undefined : (providerThread.contextUsage ?? null);
         });
 
         const handleSessionUpdate = Effect.fnUntraced(function* (
@@ -6009,7 +6013,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 runRuntimeCallbackAtGeneration(
                   handlerGeneration,
                   Effect.gen(function* () {
-                    const next = update(yield* currentSessionContextUsage(sessionId));
+                    const previous = yield* currentSessionContextUsage(sessionId);
+                    if (previous === undefined) return;
+                    const next = update(previous);
                     if (next !== null) yield* applySessionContextUsage(sessionId, next);
                   }),
                 ).pipe(Effect.asVoid),

@@ -28,6 +28,7 @@ import {
 } from "@t3tools/provider-core/server/snapshotProbe";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Crypto from "effect/Crypto";
@@ -218,16 +219,18 @@ const runKiroCli = (
     );
   }).pipe(Effect.timeoutOption(CLI_TIMEOUT_MS));
 
-function authFromWhoami(
+export function kiroAuthFromWhoami(
   output: { readonly code: number; readonly stdout: string; readonly stderr: string } | undefined,
 ): ServerProviderAuth {
   if (output === undefined) return { status: "unknown" };
   if (output.code !== 0) {
-    return /not logged in|login|unauthor/i.test(`${output.stdout}\n${output.stderr}`)
+    // Signed out, kiro-cli exits 1 printing `{"account":null}`.
+    return /"account"\s*:\s*null|not logged in/i.test(`${output.stdout}\n${output.stderr}`)
       ? { status: "unauthenticated" }
       : { status: "unknown" };
   }
-  const whoami = decodeWhoami(output.stdout.trim());
+  // `whoami -f json` prints the account object, then a plain-text profile section.
+  const whoami = decodeWhoami(extractJsonObject(output.stdout));
   if (Option.isNone(whoami)) return { status: "unknown" };
   return {
     status: "authenticated",
@@ -399,7 +402,7 @@ export const checkKiroProviderStatus = Effect.fn("checkKiroProviderStatus")(func
     ],
     { concurrency: 2 },
   );
-  const auth = authFromWhoami(whoamiResult);
+  const auth = kiroAuthFromWhoami(whoamiResult);
   const modelList =
     modelsResult !== undefined && modelsResult.code === 0
       ? Option.getOrUndefined(decodeModelList(modelsResult.stdout.trim()))

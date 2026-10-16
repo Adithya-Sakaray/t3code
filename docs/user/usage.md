@@ -6,7 +6,7 @@ desktop when the terminal is not focused. Customize `usage.open` in
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, and Cursor history
+**Usage** combines Codex, Claude Code, Grok Build, Kiro, OpenCode, Antigravity, Pi, and Cursor history
 from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost, split by token type and by speed. These estimates are not your subscription bill.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
@@ -117,6 +117,9 @@ a custom Cursor endpoint, use an explicit token or file-based CLI login for limi
 Grok reports the remaining subscription allowance and reset time for its current billing period
 after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custom authentication
 or endpoint configurations do not report subscription limits.
+
+Kiro reports its monthly credit allowance and reset date after each turn. Kiro history comes from
+each instance's `KIRO_HOME` and is priced from the credits each turn used.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.

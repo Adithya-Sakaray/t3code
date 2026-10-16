@@ -175,6 +175,8 @@ const applyKiroModelSelection =
             effort,
             detail: result._tag === "Some" ? result.value.message : undefined,
           });
+        } else {
+          yield* Effect.logDebug("Kiro effort applied", { model: requested, effort });
         }
       }
       return requested;

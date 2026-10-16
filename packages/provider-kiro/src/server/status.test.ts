@@ -1,7 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { kiroAcpSpawnArgs, kiroLaunchRuntimeMode } from "./acpSupport.ts";
-import { buildKiroServerModels, kiroCapabilityCacheIsCurrent } from "./status.ts";
+import {
+  buildKiroServerModels,
+  kiroAuthFromWhoami,
+  kiroCapabilityCacheIsCurrent,
+} from "./status.ts";
 
 const CACHE = {
   version: "2.19.1",
@@ -108,5 +112,24 @@ describe("kiro launch permissions", () => {
         approvalPolicy: "on-request",
       }),
     ).toBe("approval-required");
+  });
+});
+
+describe("kiroAuthFromWhoami", () => {
+  it("reads the account from `whoami -f json` despite the trailing profile text", () => {
+    // kiro-cli 2.19.1 prints the JSON object, a blank line, then the profile.
+    const stdout =
+      '{"accountType":"IamIdentityCenter","email":"dev@example.com","region":"eu-north-1"}\n\nProfile:\nKiroProfile-us-east-1\narn:aws:codewhisperer:us-east-1:1:profile/X\n';
+    expect(kiroAuthFromWhoami({ code: 0, stdout, stderr: "" })).toEqual({
+      status: "authenticated",
+      email: "dev@example.com",
+      type: "IamIdentityCenter",
+    });
+  });
+
+  it("reports a missing login as signed out", () => {
+    expect(kiroAuthFromWhoami({ code: 1, stdout: '{"account":null}\n', stderr: "" })).toEqual({
+      status: "unauthenticated",
+    });
   });
 });
