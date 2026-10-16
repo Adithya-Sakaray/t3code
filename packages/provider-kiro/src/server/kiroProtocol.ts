@@ -299,27 +299,36 @@ function kiroToolName(update: EffectAcpSchema.SessionNotification["update"]): st
   return typeof kiro?.toolName === "string" ? kiro.toolName : undefined;
 }
 
+/** Per-session progress of a crew child's answer, for {@link kiroDropSummaryEcho}. */
+export interface KiroSummaryEchoState {
+  /** Sessions that streamed answer text. */
+  readonly answered: Set<string>;
+  /** Sessions that answered and then reported through `summary`. */
+  readonly echoing: Set<string>;
+}
+
 /**
- * A crew child answers, reports that answer through its `summary` tool, then
- * repeats it as text. The repeat would run into the first answer in the
- * subagent's message, so text a session streams after its summary is blanked.
- * `summarizedSessions` remembers which sessions have summarized.
+ * A crew child sometimes answers, reports that answer through its `summary`
+ * tool, then repeats it as text. The repeat would run into the first answer in
+ * the subagent's message, so it is blanked. A child that summarizes before
+ * writing any text keeps its text: that is its only answer.
  */
 export function kiroDropSummaryEcho(
-  summarizedSessions: Set<string>,
+  state: KiroSummaryEchoState,
   notification: EffectAcpSchema.SessionNotification,
 ): EffectAcpSchema.SessionNotification {
   const { update } = notification;
+  const { sessionId } = notification;
   if (kiroToolName(update) === "summary") {
-    summarizedSessions.add(notification.sessionId);
+    if (state.answered.has(sessionId)) state.echoing.add(sessionId);
     return notification;
   }
-  if (
-    update.sessionUpdate === "agent_message_chunk" &&
-    update.content.type === "text" &&
-    summarizedSessions.has(notification.sessionId)
-  ) {
+  if (update.sessionUpdate !== "agent_message_chunk" || update.content.type !== "text") {
+    return notification;
+  }
+  if (state.echoing.has(sessionId)) {
     return { ...notification, update: { ...update, content: { ...update.content, text: "" } } };
   }
+  if (update.content.text.trim().length > 0) state.answered.add(sessionId);
   return notification;
 }

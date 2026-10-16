@@ -223,29 +223,40 @@ describe("kiroDropSummaryEcho", () => {
       update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
     }) as const;
 
+  const summaryCall = {
+    sessionId: CHILD,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: "toolu_bdrk_01BCJn7baVkfBhdHKYtZ3g2D",
+      title: "Summarizing",
+      rawInput: { taskResult: "2 files" },
+      _meta: { kiro: { toolName: "summary" } },
+    },
+  } as never;
+  const fresh = () => ({ answered: new Set<string>(), echoing: new Set<string>() });
+
   it("blanks the answer a crew child repeats after its summary", () => {
-    const summarized = new Set<string>();
+    const summarized = fresh();
     expect(kiroDropSummaryEcho(summarized, chunk("The directory contains two files."))).toEqual(
       chunk("The directory contains two files."),
     );
     // Recorded from kiro-cli 2.19.1: the child's summary tool call.
-    kiroDropSummaryEcho(summarized, {
-      sessionId: CHILD,
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "toolu_bdrk_01BCJn7baVkfBhdHKYtZ3g2D",
-        title: "Summarizing",
-        rawInput: { taskResult: "2 files" },
-        _meta: { kiro: { toolName: "summary" } },
-      },
-    } as never);
+    kiroDropSummaryEcho(summarized, summaryCall);
     expect(
       kiroDropSummaryEcho(summarized, chunk("The current working directory contains 2 files")),
     ).toEqual(chunk(""));
   });
 
+  it("keeps a crew child's only answer when it summarizes before writing text", () => {
+    // kiro-cli 2.19.1 also runs a tool, summarizes, and only then answers.
+    const summarized = fresh();
+    kiroDropSummaryEcho(summarized, summaryCall);
+    const answer = chunk("The current directory contains a single file:\n\n- README.md");
+    expect(kiroDropSummaryEcho(summarized, answer)).toBe(answer);
+  });
+
   it("leaves other sessions' text alone", () => {
-    const summarized = new Set([CHILD]);
+    const summarized = { answered: new Set([CHILD]), echoing: new Set([CHILD]) };
     const root = { ...chunk("SUBAGENT_DONE"), sessionId: "root" };
     expect(kiroDropSummaryEcho(summarized, root)).toBe(root);
   });
