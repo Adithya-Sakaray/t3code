@@ -25,7 +25,11 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { KiroSettings } from "../settings.ts";
 import { createKiroAdapterV2, type KiroAdapterV2DriverEnv } from "./adapter.ts";
-import { buildInitialKiroProviderSnapshot, checkKiroProviderStatus } from "./status.ts";
+import {
+  buildInitialKiroProviderSnapshot,
+  checkKiroProviderStatus,
+  rememberKiroUsageLimits,
+} from "./status.ts";
 import { makeKiroTextGeneration } from "./textGeneration.ts";
 import { kiroUsageReader } from "./usage.ts";
 
@@ -89,7 +93,17 @@ export const KiroDriver: ProviderDriver<
 
       const orchestrationAdapter = yield* createKiroAdapterV2(
         { instanceId, displayName, accentColor, environment, enabled, config },
-        { onUsageLimits: (update) => snapshot.applyUsageLimits(update) },
+        {
+          onUsageLimits: (update) =>
+            rememberKiroUsageLimits(cacheFile, {
+              checkedAt: update.checkedAt,
+              windows: update.windows,
+            }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.andThen(snapshot.applyUsageLimits(update)),
+            ),
+        },
       ).pipe(
         Effect.mapError(
           (cause) =>

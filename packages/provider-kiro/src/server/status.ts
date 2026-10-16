@@ -26,7 +26,6 @@ import {
   spawnAndCollect,
   type ServerProviderDraft,
 } from "@t3tools/provider-core/server/snapshotProbe";
-import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import { createModelCapabilities } from "@t3tools/shared/model";
@@ -69,6 +68,11 @@ const KIRO_PRESENTATION = {
 } as const;
 
 const CLI_TIMEOUT_MS = 10_000;
+
+const KIRO_ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  IamIdentityCenter: "IAM Identity Center",
+  BuilderId: "Builder ID",
+};
 const SESSION_PROBE_TIMEOUT_MS = 90_000;
 
 const KiroMode = Schema.Struct({
@@ -235,7 +239,13 @@ export function kiroAuthFromWhoami(
   return {
     status: "authenticated",
     ...(whoami.value.email?.trim() ? { email: whoami.value.email.trim() } : {}),
-    ...(whoami.value.accountType?.trim() ? { type: whoami.value.accountType.trim() } : {}),
+    ...(whoami.value.accountType?.trim()
+      ? {
+          type:
+            KIRO_ACCOUNT_TYPE_LABELS[whoami.value.accountType.trim()] ??
+            whoami.value.accountType.trim(),
+        }
+      : {}),
   };
 }
 
@@ -412,7 +422,6 @@ export const checkKiroProviderStatus = Effect.fn("checkKiroProviderStatus")(func
 
   let cache = Option.getOrNull(yield* readKiroCapabilityCache(input.cacheFile));
   const canProbe = auth.status === "authenticated" && modelList !== undefined;
-  let probedNow = false;
   if (
     canProbe &&
     (input.forceSessionProbe ||
@@ -427,7 +436,6 @@ export const checkKiroProviderStatus = Effect.fn("checkKiroProviderStatus")(func
     }).pipe(Effect.orElseSucceed(() => Option.none<KiroCapabilityCache>()));
     if (Option.isSome(probed)) {
       cache = probed.value;
-      probedNow = true;
       yield* writeKiroCapabilityCache(input.cacheFile, probed.value);
     } else {
       yield* Effect.logWarning(
@@ -436,16 +444,8 @@ export const checkKiroProviderStatus = Effect.fn("checkKiroProviderStatus")(func
     }
   }
 
-  // A fresh probe's credit window wins; otherwise keep whatever the snapshot
-  // already shows (turns refresh it) by reporting this probe as not having one.
-  const usageLimits =
-    probedNow && cache?.usageLimits !== undefined
-      ? cache.usageLimits
-      : makeUnavailableUsageLimits({
-          checkedAt,
-          reason: "probeFailed",
-          message: "Kiro reports credits after each turn.",
-        });
+  // The last credit window a probe or a metered turn saved; turns keep it current.
+  const usageLimits = cache?.usageLimits;
 
   return buildServerProvider({
     presentation: KIRO_PRESENTATION,
@@ -462,7 +462,31 @@ export const checkKiroProviderStatus = Effect.fn("checkKiroProviderStatus")(func
         : modelList === undefined
           ? { message: "Kiro CLI did not list its models." }
           : {}),
-      usageLimits,
+      ...(usageLimits === undefined ? {} : { usageLimits }),
     },
   });
 });
+
+/**
+ * Saves a credit window a metered turn reported, so status checks between
+ * turns and after a restart keep showing it.
+ */
+export const rememberKiroUsageLimits = (
+  cacheFile: string,
+  usageLimits: ServerProviderUsageLimits,
+) =>
+  readKiroCapabilityCache(cacheFile).pipe(
+    Effect.flatMap((cache) =>
+      writeKiroCapabilityCache(cacheFile, {
+        ...Option.getOrElse(cache, () => ({
+          // A runtime-only cache never matches an install, so the next check still probes.
+          version: null,
+          probedAt: usageLimits.checkedAt,
+          effortLevels: {},
+          modes: [],
+          currentModeId: null,
+        })),
+        usageLimits,
+      }),
+    ),
+  );

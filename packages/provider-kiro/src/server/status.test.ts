@@ -123,7 +123,7 @@ describe("kiroAuthFromWhoami", () => {
     expect(kiroAuthFromWhoami({ code: 0, stdout, stderr: "" })).toEqual({
       status: "authenticated",
       email: "dev@example.com",
-      type: "IamIdentityCenter",
+      type: "IAM Identity Center",
     });
   });
 

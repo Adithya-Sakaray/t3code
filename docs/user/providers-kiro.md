@@ -36,8 +36,9 @@ the provider's settings to check again.
 
 ## Credits and usage
 
-The composer's context meter shows how full the conversation's context is and the credits the
-thread has used, including credits used by its subagents. **Usage → Limits** shows your monthly
+With **Settings → General → Context window indicator** on, the composer's context meter shows how
+full the conversation's context is and the credits the thread has used, including credits used by
+its subagents. **Usage → Limits** shows your monthly
 credit allowance; it updates after each turn. The Usage page includes Kiro history from every
 instance's `KIRO_HOME`, priced at Kiro's overage rate.
 
