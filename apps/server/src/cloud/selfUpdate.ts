@@ -306,7 +306,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         Effect.mapError((error) =>
           error._tag === "PinnedRuntimePreflightBlockedError"
             ? failWith(error.reason, error)
-            : failWith(`Could not prepare t3@${targetVersion}.`, error),
+            : error.unpublishedSpec !== undefined
+              ? failWith(error.message, error)
+              : failWith(`Could not prepare t3@${targetVersion}.`, error),
         ),
       );
 

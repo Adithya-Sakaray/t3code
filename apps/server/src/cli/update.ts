@@ -2,9 +2,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_CHANNELS,
-  cliReleaseIndexPageUrl,
   cliReleaseChannelOf,
-  newestCliReleaseVersion,
   type CliReleaseChannel,
 } from "@t3tools/shared/cliRelease";
 import * as Console from "effect/Console";
@@ -25,6 +23,7 @@ import {
   pinnedRuntimeCommand,
   PinnedRuntimeInstallError,
   pinnedRuntimePaths,
+  resolveCliPackageName,
 } from "../cloud/pinnedRuntime.ts";
 import { compareExactServiceVersions, isExactServiceVersion } from "../cloud/serviceProtocol.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -41,51 +40,62 @@ export class CliUpdateError extends Schema.TaggedError<CliUpdateError>()("CliUpd
   }
 }
 
-const ReleaseIndex = Schema.Array(
-  Schema.Struct({
-    tag_name: Schema.String,
-    draft: Schema.optional(Schema.Boolean),
-  }),
+const decodeDistTags = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
 );
-const decodeReleaseIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(ReleaseIndex));
 
-const RELEASE_INDEX_TIMEOUT = Duration.seconds(30);
-// Enough to walk past a long run of nightlies without hammering the API when
-// a channel genuinely has nothing published.
-const RELEASE_INDEX_MAX_PAGES = 10;
+const DIST_TAGS_TIMEOUT = Duration.seconds(30);
 
-/** Asks GitHub for the newest published version on a channel, page by page. */
+/** npm's dist-tags endpoint for a CLI package, scoped names included. */
+export function cliPackageDistTagsUrl(packageName: string): string {
+  return `https://registry.npmjs.org/-/package/${packageName.replace("/", "%2f")}/dist-tags`;
+}
+
+/** The version a channel's dist-tag points at; stable releases publish as `latest`. */
+export function newestVersionFromDistTags(
+  tags: Readonly<Record<string, string>>,
+  channel: CliReleaseChannel,
+): string | undefined {
+  const version = tags[channel === "stable" ? "latest" : channel];
+  return version !== undefined && isExactServiceVersion(version) ? version : undefined;
+}
+
+/**
+ * Asks npm for the newest version of this build's CLI package on a channel.
+ * Runtimes install from that package, so its dist-tags are what can be
+ * installed; upstream's GitHub releases list versions a fork never published.
+ */
 const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
   channel: CliReleaseChannel,
 ) {
   const httpClient = yield* HttpClient.HttpClient;
-  for (let page = 1; page <= RELEASE_INDEX_MAX_PAGES; page += 1) {
-    const body = yield* httpClient
-      .execute(
-        HttpClientRequest.get(cliReleaseIndexPageUrl(page)).pipe(
-          HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
-        ),
-      )
-      .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap((response) => response.text),
-        Effect.mapError(() => new CliUpdateError({ reason: "Could not list t3 releases." })),
-        Effect.timeoutOrElse({
-          duration: RELEASE_INDEX_TIMEOUT,
-          orElse: () =>
-            Effect.fail(new CliUpdateError({ reason: "Timed out listing t3 releases." })),
-        }),
-      );
-    const releases = yield* decodeReleaseIndex(body).pipe(
+  const packageName = resolveCliPackageName();
+  const body = yield* httpClient
+    .execute(HttpClientRequest.get(cliPackageDistTagsUrl(packageName)))
+    .pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.text),
       Effect.mapError(
-        () => new CliUpdateError({ reason: "The t3 release index had an unexpected shape." }),
+        () => new CliUpdateError({ reason: `Could not list ${packageName} releases on npm.` }),
       ),
+      Effect.timeoutOrElse({
+        duration: DIST_TAGS_TIMEOUT,
+        orElse: () =>
+          Effect.fail(
+            new CliUpdateError({ reason: `Timed out listing ${packageName} releases on npm.` }),
+          ),
+      }),
     );
-    const version = newestCliReleaseVersion(releases, channel);
-    if (version !== undefined) return version;
-    if (releases.length === 0) break;
-  }
-  return yield* new CliUpdateError({ reason: `No published ${channel} release was found.` });
+  const tags = yield* decodeDistTags(body).pipe(
+    Effect.mapError(
+      () => new CliUpdateError({ reason: "npm's dist-tags response had an unexpected shape." }),
+    ),
+  );
+  const version = newestVersionFromDistTags(tags, channel);
+  if (version !== undefined) return version;
+  return yield* new CliUpdateError({
+    reason: `${packageName} has no published ${channel} release.`,
+  });
 });
 
 /** Whether a launcher target lives inside `<baseDir>/runtime/versions`. */
@@ -512,15 +522,8 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
     Effect.ensuring(Effect.sync(progress.finish)),
     Effect.catchIf(
       (error): error is PinnedRuntimeInstallError =>
-        error._tag === "PinnedRuntimeInstallError" &&
-        error.step.startsWith("downloading the t3 release checksums") &&
-        String(error.cause).includes("404"),
-      () =>
-        Effect.fail(
-          new CliUpdateError({
-            reason: `No release archive was published for t3@${targetVersion}.`,
-          }),
-        ),
+        error._tag === "PinnedRuntimeInstallError" && error.unpublishedSpec !== undefined,
+      (error) => Effect.fail(new CliUpdateError({ reason: error.message })),
     ),
   );
 

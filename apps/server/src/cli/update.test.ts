@@ -6,7 +6,27 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
-import { repointLauncher, resolveLauncherPath } from "./update.ts";
+import { describe } from "vite-plus/test";
+
+import {
+  cliPackageDistTagsUrl,
+  newestVersionFromDistTags,
+  repointLauncher,
+  resolveLauncherPath,
+} from "./update.ts";
+
+describe("t3 update version lookup", () => {
+  it("reads a scoped package's dist-tags, mapping stable to latest", () => {
+    assert.equal(
+      cliPackageDistTagsUrl("@adithyasak/t3"),
+      "https://registry.npmjs.org/-/package/@adithyasak%2ft3/dist-tags",
+    );
+    const tags = { latest: "0.1.0-adi.2", nightly: "0.1.1-nightly.20261016.3203", alpha: "x" };
+    assert.equal(newestVersionFromDistTags(tags, "stable"), "0.1.0-adi.2");
+    assert.equal(newestVersionFromDistTags(tags, "nightly"), "0.1.1-nightly.20261016.3203");
+    assert.equal(newestVersionFromDistTags(tags, "preview"), undefined);
+  });
+});
 
 it.layer(NodeServices.layer)("t3 update launcher", (it) => {
   it.effect("repoints a symlink that lives in a runtime versions tree", () =>

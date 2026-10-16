@@ -125,6 +125,38 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
     }),
   );
 
+  it.effect("names the package spec when npm has no such version", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-unpublished-" });
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version: "0.1.0",
+        packageName: "@adithyasak/t3",
+        fs,
+        path,
+        runner: ProcessRunner.ProcessRunner.of({
+          run: () =>
+            Effect.succeed({
+              stdout: "",
+              stderr:
+                "npm error code ETARGET\nnpm error notarget No matching version found for @adithyasak/t3@0.1.0.\n",
+              code: ChildProcessSpawner.ExitCode(1),
+              timedOut: false,
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              stdoutInvalidUtf8: false,
+              stderrInvalidUtf8: false,
+            }),
+        }),
+        validate: () => Effect.die("must not validate a failed install"),
+      }).pipe(Effect.flip);
+      assert.equal(error._tag, "PinnedRuntimeInstallError");
+      assert.equal(error.message, "@adithyasak/t3@0.1.0 is not published on npm.");
+    }),
+  );
+
   it.effect("validates a staging tree before atomically publishing it", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

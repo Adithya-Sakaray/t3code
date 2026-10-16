@@ -33,7 +33,7 @@ const NODE_PROCESS_PLATFORMS = new Set<string>([
 
 declare const __T3CODE_CLI_PACKAGE_NAME__: string | undefined;
 
-function resolveCliPackageName(
+export function resolveCliPackageName(
   packageName = typeof __T3CODE_CLI_PACKAGE_NAME__ === "undefined"
     ? undefined
     : __T3CODE_CLI_PACKAGE_NAME__,
@@ -51,6 +51,8 @@ function resolveCliPackageName(
 
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
+// npm's codes for a missing version (ETARGET) or a missing package (E404).
+const NPM_UNPUBLISHED_ERROR = /\bnpm error code (?:ETARGET|E404)\b/;
 // Boot-service setup and remote update can construct separate layers. Serialize
 // the complete install transaction across every caller in this process.
 const pinnedRuntimeInstallLock = Semaphore.makeUnsafe(1);
@@ -106,10 +108,15 @@ export class PinnedRuntimeInstallError extends Schema.TaggedError<PinnedRuntimeI
     exitCode: Schema.optional(Schema.Number),
     stdoutLength: Schema.optional(Schema.Number),
     stderrLength: Schema.optional(Schema.Number),
+    /** The `<cli-package>@<version>` npm reported as not published. */
+    unpublishedSpec: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
+    if (this.unpublishedSpec !== undefined) {
+      return `${this.unpublishedSpec} is not published on npm.`;
+    }
     return this.exitCode === undefined
       ? `Pinned runtime install failed while ${this.step}.`
       : `Pinned runtime install failed while ${this.step} (exit code ${this.exitCode}).`;
@@ -267,6 +274,11 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
               exitCode: Number(result.code),
               stdoutLength: result.stdout.length,
               stderrLength: result.stderr.length,
+              // A client may ask for a version this build's package never had,
+              // such as an upstream release offered to a fork's server.
+              ...(NPM_UNPUBLISHED_ERROR.test(result.stderr)
+                ? { unpublishedSpec: formatCliPackageSpec(packageName, input.version) }
+                : {}),
             }),
         ),
       );
