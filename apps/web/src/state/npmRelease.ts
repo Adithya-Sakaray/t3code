@@ -4,7 +4,7 @@ import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { normalizeCliPackageName } from "@t3tools/shared/cliPackage";
 
-const CLI_PACKAGE_NAME = normalizeCliPackageName(import.meta.env.T3CODE_CLI_PACKAGE_NAME);
+export const CLI_PACKAGE_NAME = normalizeCliPackageName(import.meta.env.T3CODE_CLI_PACKAGE_NAME);
 
 /**
  * Whether the CLI package (`t3`, or a fork's scoped name) at `<version>` is published on npm. A 404 is false; network and
