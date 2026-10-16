@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-09T23:31:10Z",
+  "updatedAt": "2026-10-16T12:00:00Z",
   "compatibility": [
     {
       "driver": "codex",
@@ -48,6 +48,16 @@
       "ranges": [
         { "range": ">=1.0.13", "status": "supported" },
         { "range": "<1.0.13", "status": "broken" }
+      ]
+    },
+    {
+      "driver": "kiro",
+      "t3CodeRange": ">=0.0.45",
+      "recommendedRange": ">=2.19.0",
+      "ranges": [
+        { "range": ">=2.19.0", "status": "supported" },
+        { "range": ">=2.0.0 <2.19.0", "status": "graceful" },
+        { "range": "<2.0.0", "status": "unsupported" }
       ]
     },
     {

@@ -207,6 +207,24 @@ export interface AcpAdapterV2ExtensionContext {
     },
     EffectAcpErrors.AcpError
   >;
+  /**
+   * A subagent the agent reports outside a tool call (Kiro's crew roster).
+   * Projects into the active turn, linking `childSessionId` so that session's
+   * updates route to the subagent thread; a terminal update for a subagent of
+   * a settled turn finishes its carryover row.
+   */
+  readonly reportSubagent: (update: AcpAdapterV2SubagentUpdate) => Effect.Effect<void>;
+  /**
+   * Replaces a session's context usage with `update(previous)`, where
+   * `previous` is what the session last reported or its provider thread
+   * persisted. Returning null leaves it unchanged.
+   */
+  readonly updateContextUsage: (input: {
+    readonly sessionId: string;
+    readonly update: (previous: ThreadTokenUsageSnapshot | null) => ThreadTokenUsageSnapshot | null;
+  }) => Effect.Effect<void>;
+  /** The root ACP session this runtime prompts, once it has started. */
+  readonly rootSessionId: Effect.Effect<string | null>;
   /** Surfaces plan markdown as this turn's proposed-plan card (#8358). */
   readonly captureProposedPlan: (input: { readonly planMarkdown: string }) => Effect.Effect<void>;
   /** Last markdown captured for the active turn, as the exit-gate fallback. */
@@ -4109,6 +4127,52 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           return true;
         });
 
+        /**
+         * Records a session's context usage and republishes its provider thread.
+         * Shared by ACP `usage_update` and flavors that report usage through
+         * their own extension notifications (Kiro `_kiro.dev/metadata`).
+         */
+        const applySessionContextUsage = Effect.fnUntraced(function* (
+          sessionId: string,
+          usage: ThreadTokenUsageSnapshot,
+        ) {
+          const context = yield* Ref.get(activeTurn);
+          yield* Ref.update(contextUsageBySessionId, (current) =>
+            new Map(current).set(sessionId, usage),
+          );
+          if (context?.nativeThreadId === sessionId) {
+            context.contextUsage = usage;
+          }
+          const knownProviderThread = (yield* Ref.get(providerThreadByNativeSessionId)).get(
+            sessionId,
+          );
+          if (knownProviderThread === undefined) return;
+          const providerThread: OrchestrationV2ProviderThread = {
+            ...knownProviderThread,
+            contextUsage: usage,
+            nativeMetadata:
+              (yield* Ref.get(nativeMetadataBySessionId)).get(sessionId) ??
+              knownProviderThread.nativeMetadata ??
+              null,
+            updatedAt: yield* DateTime.now,
+          };
+          yield* Ref.update(providerThreadByNativeSessionId, (current) =>
+            new Map(current).set(sessionId, providerThread),
+          );
+          yield* emitProviderEvent({ type: "provider_thread.updated", driver, providerThread });
+        });
+
+        /** The usage a session last reported, falling back to what its provider thread persisted. */
+        const currentSessionContextUsage = Effect.fnUntraced(function* (sessionId: string) {
+          const remembered = (yield* Ref.get(contextUsageBySessionId)).get(sessionId);
+          if (remembered !== undefined) return remembered;
+          const context = yield* Ref.get(activeTurn);
+          if (context?.nativeThreadId === sessionId) return context.contextUsage;
+          return (
+            (yield* Ref.get(providerThreadByNativeSessionId)).get(sessionId)?.contextUsage ?? null
+          );
+        });
+
         const handleSessionUpdate = Effect.fnUntraced(function* (
           notification: EffectAcpSchema.SessionNotification,
         ) {
@@ -4127,23 +4191,18 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             );
             if (stateEvent === undefined) return;
             if (stateEvent._tag === "UsageUpdated") {
-              yield* Ref.update(contextUsageBySessionId, (current) =>
-                new Map(current).set(notification.sessionId, stateEvent.usage),
-              );
-              if (context?.nativeThreadId === notification.sessionId) {
-                context.contextUsage = stateEvent.usage;
-              }
-            } else {
-              const metadata = yield* Ref.modify(nativeMetadataBySessionId, (current) => {
-                const merged = {
-                  ...current.get(notification.sessionId),
-                  ...stateEvent.metadata,
-                };
-                return [merged, new Map(current).set(notification.sessionId, merged)] as const;
-              });
-              if (context?.nativeThreadId === notification.sessionId) {
-                context.nativeMetadata = metadata;
-              }
+              yield* applySessionContextUsage(notification.sessionId, stateEvent.usage);
+              return;
+            }
+            const metadata = yield* Ref.modify(nativeMetadataBySessionId, (current) => {
+              const merged = {
+                ...current.get(notification.sessionId),
+                ...stateEvent.metadata,
+              };
+              return [merged, new Map(current).set(notification.sessionId, merged)] as const;
+            });
+            if (context?.nativeThreadId === notification.sessionId) {
+              context.nativeMetadata = metadata;
             }
             const knownProviderThread = (yield* Ref.get(providerThreadByNativeSessionId)).get(
               notification.sessionId,
@@ -5945,6 +6004,42 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               requestUserInput,
               captureProposedPlan,
               lastProposedPlanMarkdown,
+              rootSessionId: Ref.get(activeSessionId),
+              updateContextUsage: ({ sessionId, update }) =>
+                runRuntimeCallbackAtGeneration(
+                  handlerGeneration,
+                  Effect.gen(function* () {
+                    const next = update(yield* currentSessionContextUsage(sessionId));
+                    if (next !== null) yield* applySessionContextUsage(sessionId, next);
+                  }),
+                ).pipe(Effect.asVoid),
+              reportSubagent: (update) =>
+                runRuntimeCallbackAtGeneration(
+                  handlerGeneration,
+                  Effect.gen(function* () {
+                    if (yield* Ref.get(stoppedRunQuarantine)) return;
+                    const context = yield* Ref.get(activeTurn);
+                    if (context !== null && !context.finalized) {
+                      yield* emitSubagent(context, update);
+                      if (acpSubagentStatusIsTerminal(update.status)) {
+                        yield* rearmDeferredFinalize(context);
+                      }
+                      return;
+                    }
+                    if (
+                      update.childSessionId !== null &&
+                      (update.status === "completed" ||
+                        update.status === "failed" ||
+                        update.status === "cancelled")
+                    ) {
+                      yield* finishSubagentFromNotice({
+                        childSessionId: update.childSessionId,
+                        status: update.status,
+                        result: update.result,
+                      });
+                    }
+                  }),
+                ).pipe(Effect.asVoid),
               finishSubagent: (notice) =>
                 runRuntimeCallbackAtGeneration(
                   handlerGeneration,

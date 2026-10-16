@@ -8,6 +8,7 @@ import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
 import { makeProviderClientRegistry } from "@t3tools/provider-core/client";
 import { cursorClient } from "@t3tools/provider-cursor/client";
 import { grokClient } from "@t3tools/provider-grok/client";
+import { kiroClient } from "@t3tools/provider-kiro/client";
 import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
@@ -26,6 +27,7 @@ export const providerClients = makeProviderClientRegistry([
   },
   cursorClient,
   grokClient,
+  kiroClient,
   openCodeClient,
   {
     driverKind: ProviderDriverKind.make("antigravity"),

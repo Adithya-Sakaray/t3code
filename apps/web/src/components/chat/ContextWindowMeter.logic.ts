@@ -145,5 +145,9 @@ export function formatContextWindowCost(cost: {
   readonly currency: string;
 }): string {
   const fractionDigits = Math.abs(cost.amount) > 0 && Math.abs(cost.amount) < 0.01 ? 4 : 2;
-  return `${cost.currency} ${cost.amount.toFixed(fractionDigits)}`;
+  const amount = cost.amount.toFixed(fractionDigits);
+  // ISO currency codes lead ("USD 0.42"); unit words such as Kiro's credits trail.
+  return /^[A-Z]{3}$/.test(cost.currency)
+    ? `${cost.currency} ${amount}`
+    : `${amount} ${cost.currency}`;
 }

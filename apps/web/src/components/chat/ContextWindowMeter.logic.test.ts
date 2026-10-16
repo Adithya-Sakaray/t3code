@@ -306,4 +306,8 @@ describe("formatContextWindowCost", () => {
     expect(formatContextWindowCost({ amount: 0.42, currency: "USD" })).toBe("USD 0.42");
     expect(formatContextWindowCost({ amount: 0.0042, currency: "USD" })).toBe("USD 0.0042");
   });
+
+  it("puts unit words such as Kiro credits after the amount", () => {
+    expect(formatContextWindowCost({ amount: 1.234, currency: "credits" })).toBe("1.23 credits");
+  });
 });
