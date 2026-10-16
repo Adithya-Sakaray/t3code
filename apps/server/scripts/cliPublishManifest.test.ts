@@ -18,11 +18,12 @@ const source = {
     effect: "catalog:",
     yaml: "catalog:",
     "node-pty": "^1.1.0",
+    "@t3tools/provider-kiro": "workspace:*",
   },
 };
 
 describe("createPublishPackageManifest", () => {
-  it("resolves catalog dependencies and keeps the workspace package name by default", () => {
+  it("resolves catalog dependencies, drops bundled workspace packages, and keeps the workspace package name by default", () => {
     const manifest = createPublishPackageManifest({
       source,
       version: "0.0.34-adi.1",

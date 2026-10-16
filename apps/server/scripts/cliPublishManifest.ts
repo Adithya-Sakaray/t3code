@@ -33,6 +33,16 @@ export interface CliPublishPackageManifest {
   readonly overrides: Record<string, string>;
 }
 
+// Workspace packages are inlined into dist/bin.mjs, and npm cannot resolve
+// `workspace:` specs, so they never reach the published manifest.
+function withoutWorkspaceDependencies(
+  dependencies: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(dependencies).filter(([, spec]) => !spec.startsWith("workspace:")),
+  );
+}
+
 export function createPublishPackageManifest(input: {
   readonly source: CliPublishPackageSource;
   readonly version: string;
@@ -54,7 +64,7 @@ export function createPublishPackageManifest(input: {
     engines: input.source.engines,
     files: input.source.files,
     dependencies: resolveCatalogDependencies(
-      input.source.dependencies,
+      withoutWorkspaceDependencies(input.source.dependencies),
       input.workspaceCatalog,
       "apps/server",
     ),

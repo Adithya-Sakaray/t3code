@@ -178,24 +178,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bin="apps/server/dist/bin.mjs"
-          if [[ ! -f "$bin" ]]; then
-            echo "Missing $bin" >&2
+          dist="apps/server/dist"
+          if [[ ! -f "$dist/bin.mjs" ]]; then
+            echo "Missing $dist/bin.mjs" >&2
             exit 1
           fi
+          # bin.mjs is a thin entry; the CLI itself lives in the sibling chunks.
+          chunks=("$dist"/*.mjs)
           for needle in "relay.t3.codes" "pk_live_" "hzxSgY2cH10sDU2r"; do
-            if ! grep -q "$needle" "$bin"; then
+            if ! grep -qF -- "$needle" "${chunks[@]}"; then
               echo "CLI bundle is missing T3 Connect public config (${needle})." >&2
               exit 1
             fi
           done
-          echo "Baked T3 Connect public identifiers into $bin"
+          echo "Baked T3 Connect public identifiers into $dist"
 
-          if grep -q 'node_modules/t3/dist/bin.mjs' "$bin" || grep -q 'node_modules", "t3", "dist"' "$bin"; then
+          if grep -qF 'node_modules/t3/dist/bin.mjs' "${chunks[@]}" || grep -qF 'node_modules", "t3", "dist"' "${chunks[@]}"; then
             echo "CLI bundle still hardcodes unscoped node_modules/t3." >&2
             exit 1
           fi
-          if ! grep -q '@adithyasak' "$bin"; then
+          if ! grep -qF '@adithyasak' "${chunks[@]}"; then
             echo "CLI bundle is missing the scoped @adithyasak/t3 install path." >&2
             exit 1
           fi
