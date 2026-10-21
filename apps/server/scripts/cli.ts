@@ -30,7 +30,6 @@ import {
   ServerCliPublishIconSourceMissingError,
   ServerCliPublishIconTargetMissingError,
 } from "./cliErrors.ts";
-import { publishPlatformsThenLauncher } from "./publishOrder.ts";
 
 const PackageJsonPrettyJson = fromJsonStringPretty(Schema.Unknown);
 const encodePackageJson = Schema.encodeEffect(PackageJsonPrettyJson);
@@ -123,10 +122,6 @@ const applyDevelopmentIconOverrides = Effect.fn("applyDevelopmentIconOverrides")
   yield* Effect.log("[cli] Applied development icon overrides to dist/client");
 });
 
-// ---------------------------------------------------------------------------
-// build subcommand
-// ---------------------------------------------------------------------------
-
 const buildCmd = Command.make(
   "build",
   {
@@ -161,10 +156,6 @@ const buildCmd = Command.make(
       }
     }),
 ).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
-
-// ---------------------------------------------------------------------------
-// build-exe subcommand
-// ---------------------------------------------------------------------------
 
 const buildExeCmd = Command.make(
   "build-exe",
@@ -221,17 +212,6 @@ const buildExeCmd = Command.make(
   ),
 );
 
-// ---------------------------------------------------------------------------
-// publish subcommand
-// ---------------------------------------------------------------------------
-
-interface PublishCommandConfig {
-  readonly access: string;
-  readonly tag: string;
-  readonly provenance: boolean;
-  readonly dryRun: boolean;
-}
-
 interface PreparedPublishPackage {
   readonly packageJsonString: string;
   readonly originalPackageJson: Uint8Array;
@@ -248,24 +228,6 @@ interface PreparePublishPackageConfig {
   readonly packageName: Option.Option<string>;
   readonly repositoryUrl: Option.Option<string>;
 }
-
-const createVpPmPublishArgs = (config: PublishCommandConfig): ReadonlyArray<string> => {
-  const args = [
-    "publish",
-    "--filter",
-    "t3",
-    "--access",
-    config.access,
-    "--tag",
-    config.tag,
-    "--no-git-checks",
-  ];
-
-  if (config.provenance) args.push("--provenance");
-  if (config.dryRun) args.push("--dry-run");
-
-  return args;
-};
 
 const assertServerBuildAssets = Effect.fn("assertServerBuildAssets")(function* (serverDir: string) {
   const path = yield* Path.Path;
@@ -356,12 +318,11 @@ const restorePreparedPublishPackage = Effect.fn("restorePreparedPublishPackage")
 const publishCmd = Command.make(
   "publish",
   {
-    packagesDir: Flag.String("packages-dir").pipe(Flag.optional),
+    packagesDir: Flag.String("packages-dir").pipe(
+      Flag.withDescription("Output dir of scripts/build-npm-launcher.ts."),
+    ),
     tag: Flag.String("tag").pipe(Flag.withDefault("latest")),
     access: Flag.String("access").pipe(Flag.withDefault("public")),
-    appVersion: Flag.String("app-version").pipe(Flag.optional),
-    packageName: Flag.String("package-name").pipe(Flag.optional),
-    repositoryUrl: Flag.String("repository-url").pipe(Flag.optional),
     provenance: Flag.Boolean("provenance").pipe(Flag.withDefault(false)),
     dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
     verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
@@ -369,74 +330,28 @@ const publishCmd = Command.make(
   (config) =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
-      if (Option.isSome(config.packagesDir)) {
-        const fs = yield* FileSystem.FileSystem;
-        // npm runs with cwd set to the packages dir below, so tarball paths are
-        // resolved once here rather than joined twice.
-        const packagesDir = path.resolve(config.packagesDir.value);
-        const scopeDir = path.join(packagesDir, "@t3code");
-        const launcherTarball = path.join(packagesDir, "t3.tgz");
-        const platformTarballs = (yield* fs
-          .readDirectory(scopeDir)
-          .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => [])))
-          .filter((entry) => entry.startsWith("t3-") && entry.endsWith(".tgz"))
-          .sort()
-          .map((entry) => path.join(scopeDir, entry));
-        if (platformTarballs.length === 0) {
-          return yield* new ServerCliBuildAssetMissingError({
-            assetPath: path.join(scopeDir, "t3-<platform>.tgz"),
-          });
-        }
-        if (!(yield* fs.exists(launcherTarball))) {
-          return yield* new ServerCliBuildAssetMissingError({ assetPath: launcherTarball });
-        }
-
-        const args = ["publish", "--access", config.access, "--tag", config.tag];
-        if (config.provenance) args.push("--provenance");
-        if (config.dryRun) args.push("--dry-run");
-
-        const publish = Effect.fn("publish")(function* (tarball: string) {
-          const spawnCommand = yield* resolveSpawnCommand("npm", [...args, tarball]);
-          yield* Effect.log(`[cli] npm ${args.join(" ")} ${path.basename(tarball)}`);
-          yield* runCommand(
-            ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-              cwd: packagesDir,
-              stdout: config.verbose ? "inherit" : "ignore",
-              stderr: "inherit",
-              shell: spawnCommand.shell,
-            }),
-          );
-        });
-        yield* publishPlatformsThenLauncher({ platformTarballs, launcherTarball, publish });
-        return;
+      const fs = yield* FileSystem.FileSystem;
+      const packagesDir = path.resolve(config.packagesDir);
+      const launcherTarball = path.join(packagesDir, "t3.tgz");
+      if (!(yield* fs.exists(launcherTarball))) {
+        return yield* new ServerCliBuildAssetMissingError({ assetPath: launcherTarball });
       }
-      const repoRoot = yield* RepoRoot;
-      const serverDir = path.join(repoRoot, "apps/server");
-      yield* assertServerBuildAssets(serverDir);
 
-      yield* Effect.acquireUseRelease(
-        preparePublishPackage(config),
-        (resource) =>
-          Effect.gen(function* () {
-            yield* applyPreparedPublishPackage(resource);
-
-            const args = createVpPmPublishArgs(config);
-            const spawnCommand = yield* resolveSpawnCommand("vp", ["pm", ...args]);
-
-            yield* Effect.log(`[cli] Running: vp pm ${args.join(" ")}`);
-            yield* runCommand(
-              ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-                cwd: repoRoot,
-                stdout: config.verbose ? "inherit" : "ignore",
-                stderr: "inherit",
-                shell: spawnCommand.shell,
-              }),
-            );
-          }),
-        (resource) => restorePreparedPublishPackage(resource, config.verbose),
+      const args = ["publish", "--access", config.access, "--tag", config.tag];
+      if (config.provenance) args.push("--provenance");
+      if (config.dryRun) args.push("--dry-run");
+      const spawnCommand = yield* resolveSpawnCommand("npm", [...args, launcherTarball]);
+      yield* Effect.log(`[cli] npm ${args.join(" ")} t3.tgz`);
+      yield* runCommand(
+        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          cwd: packagesDir,
+          stdout: config.verbose ? "inherit" : "ignore",
+          stderr: "inherit",
+          shell: spawnCommand.shell,
+        }),
       );
     }),
-).pipe(Command.withDescription("Publish the server package to npm."));
+).pipe(Command.withDescription("Publish the t3 launcher to npm."));
 
 const packCmd = Command.make(
   "pack",
@@ -547,10 +462,6 @@ const packCmd = Command.make(
     "Pack the server package with resolved catalog deps. Pass --publish to npm publish the tarball.",
   ),
 );
-
-// ---------------------------------------------------------------------------
-// root command
-// ---------------------------------------------------------------------------
 
 const cli = Command.make("cli").pipe(
   Command.withDescription("T3 server build & publish CLI."),

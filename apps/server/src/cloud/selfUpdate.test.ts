@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
+import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -22,6 +23,7 @@ interface HarnessOptions {
   readonly mode?: "web" | "desktop";
   readonly managed?: boolean;
   readonly preflight?: "ready" | "blocked";
+  readonly beforeDownload?: Effect.Effect<void>;
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
   readonly desktopAppUpdate?: DesktopAppUpdate.DesktopAppUpdate["Service"];
 }
@@ -37,6 +39,7 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
     run: (input) =>
       Effect.gen(function* () {
         if (input.command === "npm") {
+          if (options.beforeDownload) yield* options.beforeDownload;
           order.push("install");
           const stagingDir = input.args[input.args.indexOf("--prefix") + 1];
           if (stagingDir === undefined) return yield* Effect.die("missing npm target");
@@ -66,7 +69,6 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
                 launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
               };
         return {
-          // @effect-diagnostics-next-line preferSchemaOverJson:off - fake child-process stdout.
           stdout: JSON.stringify(result),
           stderr: "",
           code: ChildProcessSpawner.ExitCode(0),
@@ -375,7 +377,6 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       );
       expect(result).toEqual({ targetVersion: "1.2.0", method: "desktop-app" });
       expect(stages).toEqual(["downloading", "installing"]);
-      // The launcher staging path must not run on the desktop path.
       expect(order).toEqual([]);
     }),
   );
@@ -406,6 +407,48 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       );
       yield* Deferred.succeed(accepted, "launcher-id");
       expect((yield* Fiber.join(first)).updateId).toBe("launcher-id");
+    }),
+  );
+
+  it.effect("keeps preparing after the progress stream closes", () =>
+    Effect.gen(function* () {
+      const releaseDownload = yield* Deferred.make<void>();
+      const sawDownloading = yield* Deferred.make<void>();
+      const accepted = yield* Deferred.make<void>();
+      const { selfUpdate, order } = yield* makeHarness({
+        beforeDownload: Deferred.await(releaseDownload),
+        requestUpdate: () =>
+          Effect.sync(() => {
+            order.push("accept");
+          }).pipe(Effect.andThen(Deferred.succeed(accepted, undefined)), Effect.as("launcher-id")),
+      });
+
+      const consumed = yield* ServerSelfUpdate.updateProgressStream(selfUpdate, {
+        targetVersion: "1.1.0",
+      }).pipe(
+        Stream.tap((event) =>
+          event.type === "progress" && event.stage === "downloading"
+            ? Deferred.succeed(sawDownloading, undefined)
+            : Effect.void,
+        ),
+        Stream.runDrain,
+        Effect.forkChild,
+      );
+
+      yield* Deferred.await(sawDownloading);
+      // The socket drop ends the stream. The download is still held.
+      yield* Fiber.interrupt(consumed);
+      expect((yield* selfUpdate.update({ targetVersion: "1.2.0" }).pipe(Effect.flip)).reason).toBe(
+        "A server update is already in progress.",
+      );
+
+      yield* Deferred.succeed(releaseDownload, undefined);
+      // `installing` is offered only after the stream queue has shut down.
+      yield* Deferred.await(accepted);
+      expect(order).toEqual(["install", "preflight", "accept"]);
+      expect((yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip)).reason).toBe(
+        "A server update is already in progress.",
+      );
     }),
   );
 });

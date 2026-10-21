@@ -2,9 +2,24 @@ import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/con
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
 
-// T3 Code Adi updates from the fork's own releases, tagged `personal-v<version>`.
-const DESKTOP_RELEASE_HISTORY_URL = "https://github.com/Adithya-Sakaray/t3code/releases";
-const DESKTOP_RELEASE_TAG_URL = `${DESKTOP_RELEASE_HISTORY_URL}/tag`;
+const DEFAULT_DESKTOP_RELEASE_REPOSITORY = "pingdotgg/t3code";
+const GITHUB_REPOSITORY_SEGMENT = /^[A-Za-z0-9._-]+$/u;
+
+function isValidRepositorySegment(value: string | undefined): value is string {
+  return (
+    value !== undefined && value !== "." && value !== ".." && GITHUB_REPOSITORY_SEGMENT.test(value)
+  );
+}
+
+function desktopReleaseRepositoryUrl(repository: string | undefined): string {
+  const configuredRepository = repository?.trim() ?? "";
+  const [owner, name, ...extra] = configuredRepository.split("/");
+  const releaseRepository =
+    isValidRepositorySegment(owner) && isValidRepositorySegment(name) && extra.length === 0
+      ? configuredRepository
+      : DEFAULT_DESKTOP_RELEASE_REPOSITORY;
+  return `https://github.com/${releaseRepository}/releases`;
+}
 
 /**
  * The main process fills `downloadedVersion` from the updater's `update-downloaded`
@@ -15,15 +30,22 @@ export function getDesktopUpdateDownloadedVersion(state: DesktopUpdateState): st
   return state.downloadedVersion ?? state.availableVersion;
 }
 
-/** Release notes for an exact downloaded build; nightly suffixes are part of the tag. */
-export function getDesktopUpdateReleaseUrl(version: string | null): string | null {
+export function getDesktopUpdateReleaseUrl(
+  version: string | null,
+  repository: string | undefined = import.meta.env.T3CODE_DESKTOP_UPDATE_REPOSITORY,
+): string | null {
   const normalizedVersion = version?.trim();
   if (!normalizedVersion) return null;
-  return `${DESKTOP_RELEASE_TAG_URL}/personal-v${encodeURIComponent(normalizedVersion)}`;
+  const releaseUrl = desktopReleaseRepositoryUrl(repository);
+  const prefix =
+    releaseUrl === "https://github.com/Adithya-Sakaray/t3code/releases" ? "personal-v" : "v";
+  return `${releaseUrl}/tag/${prefix}${encodeURIComponent(normalizedVersion)}`;
 }
 
-export function getDesktopUpdateReleaseHistoryUrl(): string {
-  return DESKTOP_RELEASE_HISTORY_URL;
+export function getDesktopUpdateReleaseHistoryUrl(
+  repository: string | undefined = import.meta.env.T3CODE_DESKTOP_UPDATE_REPOSITORY,
+): string {
+  return desktopReleaseRepositoryUrl(repository);
 }
 
 export function resolveDesktopUpdateButtonAction(
@@ -128,4 +150,20 @@ export function canCheckForUpdate(state: DesktopUpdateState | null): boolean {
   return (
     state.status !== "checking" && state.status !== "downloading" && state.status !== "disabled"
   );
+}
+
+export function getDesktopUpdateDisabledReason(
+  state: Pick<DesktopUpdateState, "enabled" | "status" | "message"> | null,
+): string | null {
+  if (!state || (state.enabled && state.status !== "disabled")) return null;
+  return state.message?.trim() || "Automatic updates are not available in this build.";
+}
+
+export function getDesktopUpdateIdleTooltip(
+  state: Pick<DesktopUpdateState, "enabled" | "status" | "message"> | null,
+) {
+  const disabledReason = getDesktopUpdateDisabledReason(state);
+  return disabledReason
+    ? { title: "Updates unavailable", detail: disabledReason }
+    : { title: "Check for updates", detail: null };
 }
