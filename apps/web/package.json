@@ -1,6 +1,6 @@
 {
   "name": "@t3tools/web",
-  "version": "0.1.2-adi.1",
+  "version": "0.1.2-adi.2",
   "private": true,
   "type": "module",
   "scripts": {
