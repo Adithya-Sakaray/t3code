@@ -177,7 +177,7 @@ describe("kiroUsageLimitsFromData", () => {
   });
 
   it("reports nothing for an account without a limit", () => {
-    const data = Schema.decodeUnknownSync(KiroUsageData)({
+    const data = Schema.decodeSync(KiroUsageData)({
       usageBreakdowns: [{ resourceType: "CREDIT", used: 5, limit: 0, hasLimit: false }],
     });
     expect(kiroUsageLimitsFromData({ data, checkedAt: "2026-10-16T12:00:00.000Z" })).toBe(

@@ -206,22 +206,21 @@ export function buildInitialKiroProviderSnapshot(
   });
 }
 
-const runKiroCli = (
+const runKiroCli = Effect.fn("KiroStatus.runKiroCli")(function* (
   settings: Pick<KiroSettings, "binaryPath">,
   args: ReadonlyArray<string>,
   environment: NodeJS.ProcessEnv,
-) =>
-  Effect.gen(function* () {
-    const command = settings.binaryPath || "kiro-cli";
-    const spawnCommand = yield* resolveSpawnCommand(command, args, { env: environment });
-    return yield* spawnAndCollect(
-      command,
-      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-        env: environment,
-        shell: spawnCommand.shell,
-      }),
-    );
-  }).pipe(Effect.timeoutOption(CLI_TIMEOUT_MS));
+) {
+  const command = settings.binaryPath || "kiro-cli";
+  const spawnCommand = yield* resolveSpawnCommand(command, args, { env: environment });
+  return yield* spawnAndCollect(
+    command,
+    ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+      env: environment,
+      shell: spawnCommand.shell,
+    }),
+  );
+}, Effect.timeoutOption(CLI_TIMEOUT_MS));
 
 export function kiroAuthFromWhoami(
   output: { readonly code: number; readonly stdout: string; readonly stderr: string } | undefined,
@@ -249,15 +248,15 @@ export function kiroAuthFromWhoami(
   };
 }
 
-export const readKiroCapabilityCache = (cacheFile: string) =>
-  Effect.gen(function* () {
+export const readKiroCapabilityCache = Effect.fn("KiroStatus.readKiroCapabilityCache")(
+  function* (cacheFile: string) {
     const fileSystem = yield* FileSystem.FileSystem;
     const raw = yield* fileSystem.readFileString(cacheFile);
     return yield* decodeCapabilityCache(raw);
-  }).pipe(
-    Effect.map(Option.some),
-    Effect.catchCause(() => Effect.succeed(Option.none<KiroCapabilityCache>())),
-  );
+  },
+  Effect.asSome,
+  Effect.catchCause(() => Effect.succeed(Option.none<KiroCapabilityCache>())),
+);
 
 const writeKiroCapabilityCache = (cacheFile: string, cache: KiroCapabilityCache) =>
   encodeCapabilityCache(cache).pipe(
@@ -285,14 +284,14 @@ export function kiroCapabilityCacheIsCurrent(input: {
  * Opens one ACP session, never prompting it, to read what only a session
  * reports: effort levels per model, agent modes, and the credit window.
  */
-const probeKiroSession = (input: {
-  readonly settings: KiroSettings;
-  readonly environment: NodeJS.ProcessEnv;
-  readonly cwd: string;
-  readonly modelIds: ReadonlyArray<string>;
-  readonly version: string | null;
-}) =>
-  Effect.gen(function* () {
+const probeKiroSession = Effect.fn("KiroStatus.probeKiroSession")(
+  function* (input: {
+    readonly settings: KiroSettings;
+    readonly environment: NodeJS.ProcessEnv;
+    readonly cwd: string;
+    readonly modelIds: ReadonlyArray<string>;
+    readonly version: string | null;
+  }) {
     const runtime = yield* makeKiroAcpRuntime({
       kiroSettings: input.settings,
       environment: input.environment,
@@ -331,7 +330,10 @@ const probeKiroSession = (input: {
       currentModeId: modes?.currentModeId ?? null,
       ...(usageLimits === undefined ? {} : { usageLimits }),
     } satisfies KiroCapabilityCache;
-  }).pipe(Effect.scoped, Effect.timeoutOption(SESSION_PROBE_TIMEOUT_MS));
+  },
+  Effect.scoped,
+  Effect.timeoutOption(SESSION_PROBE_TIMEOUT_MS),
+);
 
 export interface KiroStatusInput {
   readonly settings: KiroSettings;

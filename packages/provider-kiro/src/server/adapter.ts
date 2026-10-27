@@ -146,7 +146,7 @@ const loadContextWindows = (
             }
           }
         }),
-        Effect.catchCause(() => Effect.void),
+        Effect.ignoreCause(),
       );
 
 /**
@@ -195,25 +195,25 @@ const registerKiroExtensions =
     reportSubagent,
   }: AcpAdapterV2ExtensionContext): Effect.Effect<void> =>
     Effect.gen(function* () {
-      const refreshUsageLimits = (sessionId: string) =>
-        Effect.gen(function* () {
-          const now = DateTime.toEpochMillis(yield* DateTime.now);
-          if (
-            options.onUsageLimits === undefined ||
-            now - state.lastUsageRefreshMs < USAGE_REFRESH_INTERVAL_MS
-          ) {
-            return;
-          }
-          state.lastUsageRefreshMs = now;
-          const result = yield* executeKiroCommand(runtime, { sessionId, command: "usage" });
-          const data = decodeUsageData(result.data);
-          if (!result.success || data._tag === "None") return;
-          const checkedAt = DateTime.formatIso(yield* DateTime.now);
-          const limits = kiroUsageLimitsFromData({ data: data.value, checkedAt });
-          if (limits !== undefined) {
-            yield* options.onUsageLimits({ windows: limits.windows, checkedAt });
-          }
-        }).pipe(Effect.catchCause(() => Effect.void));
+      // Untraced: every metadata notification calls this, and most return at the throttle.
+      const refreshUsageLimits = Effect.fnUntraced(function* (sessionId: string) {
+        const now = DateTime.toEpochMillis(yield* DateTime.now);
+        if (
+          options.onUsageLimits === undefined ||
+          now - state.lastUsageRefreshMs < USAGE_REFRESH_INTERVAL_MS
+        ) {
+          return;
+        }
+        state.lastUsageRefreshMs = now;
+        const result = yield* executeKiroCommand(runtime, { sessionId, command: "usage" });
+        const data = decodeUsageData(result.data);
+        if (!result.success || data._tag === "None") return;
+        const checkedAt = DateTime.formatIso(yield* DateTime.now);
+        const limits = kiroUsageLimitsFromData({ data: data.value, checkedAt });
+        if (limits !== undefined) {
+          yield* options.onUsageLimits({ windows: limits.windows, checkedAt });
+        }
+      }, Effect.ignoreCause());
 
       yield* runtime.handleExtNotification(
         KIRO_METADATA_METHOD,
