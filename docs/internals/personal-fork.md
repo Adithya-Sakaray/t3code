@@ -15,7 +15,10 @@ package. The shared adapter gained three generic hooks for it (`reportSubagent`,
 [`provider-acp/src/server/adapter.ts`](../../packages/provider-acp/src/server/adapter.ts)). Keep
 them generic so upstream changes to that file merge cleanly. Contracts know `kiro` in
 `UsageProviderKind`, `DEFAULT_MODEL_BY_PROVIDER`, and `PROVIDER_DISPLAY_NAMES`. Web and mobile
-register `kiroClient` next to the other provider clients.
+read the shared client list in
+[`packages/client-runtime/src/providerClients.ts`](../../packages/client-runtime/src/providerClients.ts).
+Register `kiroClient` there, next to the other provider clients, and keep
+`@t3tools/provider-kiro` in that package's dependencies.
 
 **npm distribution.** Since v0.1.0, upstream installs every runtime from executable archives on its
 own GitHub releases. The fork installs `@adithyasak/t3` from npm instead, everywhere a runtime is
