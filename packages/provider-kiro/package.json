@@ -14,10 +14,6 @@
     "./server": {
       "types": "./src/server.ts",
       "import": "./src/server.ts"
-    },
-    "./testing": {
-      "types": "./src/testing.ts",
-      "import": "./src/testing.ts"
     }
   },
   "scripts": {
@@ -32,9 +28,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/provider-testing": "workspace:*",
     "@types/node": "catalog:",
     "effect-acp": "workspace:*",
     "vite-plus": "catalog:"

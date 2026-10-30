@@ -93,6 +93,10 @@
       // reports an entire component module when nothing imports it.
       "ignoreIssues": { "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"] },
     },
+    "packages/shared": {
+      // Personal fork: runtimes install from npm, so upstream's release-archive helpers have no caller here.
+      "ignoreIssues": { "src/cliRelease.ts": ["exports"] },
+    },
     "apps/marketing": {
       // `astro check` runs from the typecheck task in vite.config.ts, which knip does not read.
       "ignoreDependencies": ["@astrojs/check"],

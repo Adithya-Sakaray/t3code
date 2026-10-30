@@ -1,15 +1,6 @@
-/**
- * Kiro's provider snapshot.
- *
- * Background checks only run CLI commands that start no agent:
- * `--version`, `whoami`, and `chat --list-models`. Per-model effort levels,
- * agent modes, and the account's credit window are only reported by a live
- * ACP session, whose start boots the user's MCP servers. That probe runs when
- * Kiro's version or model list changed since the last one, or when the user
- * refreshes models; its result is cached per instance.
- *
- * @module provider-kiro/server/status
- */
+// Background checks run only `--version`, `whoami`, and `chat --list-models`. Effort, modes, and
+// the credit window need a live ACP session, which boots the user's MCP servers, so that probe
+// runs only when Kiro's version or models change, or on refresh, and is cached per instance.
 import {
   ServerProviderUsageLimits,
   type ModelCapabilities,
@@ -105,7 +96,7 @@ function modeLabel(mode: KiroMode): string {
   return name.startsWith("kiro_") ? bare.charAt(0).toUpperCase() + bare.slice(1) : name;
 }
 
-export function buildKiroModelCapabilities(input: {
+function buildKiroModelCapabilities(input: {
   readonly effortLevels: ReadonlyArray<string> | null;
   readonly modes: ReadonlyArray<KiroMode>;
   readonly currentModeId: string | null;
@@ -178,33 +169,31 @@ const FALLBACK_MODELS: ReadonlyArray<KiroModelInfo> = [
   },
 ];
 
-export function buildInitialKiroProviderSnapshot(
-  settings: KiroSettings,
-): Effect.Effect<ServerProviderDraft> {
-  return Effect.gen(function* () {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
-    return buildServerProvider({
-      presentation: KIRO_PRESENTATION,
-      enabled: settings.enabled,
-      checkedAt,
-      models: buildKiroServerModels({
-        models: FALLBACK_MODELS,
-        defaultModelId: KIRO_DEFAULT_MODEL,
-        cache: null,
-        settings,
-      }),
-      probe: {
-        installed: settings.enabled,
-        version: null,
-        status: "warning",
-        auth: { status: "unknown" },
-        message: settings.enabled
-          ? "Checking Kiro CLI availability..."
-          : "Kiro is disabled in T3 Code settings.",
-      },
-    });
+export const buildInitialKiroProviderSnapshot = Effect.fn(
+  "KiroStatus.buildInitialKiroProviderSnapshot",
+)(function* (settings: KiroSettings): Effect.fn.Return<ServerProviderDraft> {
+  const checkedAt = DateTime.formatIso(yield* DateTime.now);
+  return buildServerProvider({
+    presentation: KIRO_PRESENTATION,
+    enabled: settings.enabled,
+    checkedAt,
+    models: buildKiroServerModels({
+      models: FALLBACK_MODELS,
+      defaultModelId: KIRO_DEFAULT_MODEL,
+      cache: null,
+      settings,
+    }),
+    probe: {
+      installed: settings.enabled,
+      version: null,
+      status: "warning",
+      auth: { status: "unknown" },
+      message: settings.enabled
+        ? "Checking Kiro CLI availability..."
+        : "Kiro is disabled in T3 Code settings.",
+    },
   });
-}
+});
 
 const runKiroCli = Effect.fn("KiroStatus.runKiroCli")(function* (
   settings: Pick<KiroSettings, "binaryPath">,
@@ -248,7 +237,7 @@ export function kiroAuthFromWhoami(
   };
 }
 
-export const readKiroCapabilityCache = Effect.fn("KiroStatus.readKiroCapabilityCache")(
+const readKiroCapabilityCache = Effect.fn("KiroStatus.readKiroCapabilityCache")(
   function* (cacheFile: string) {
     const fileSystem = yield* FileSystem.FileSystem;
     const raw = yield* fileSystem.readFileString(cacheFile);

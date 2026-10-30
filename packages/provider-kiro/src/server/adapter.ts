@@ -1,5 +1,4 @@
 import {
-  defaultInstanceIdForDriver,
   ProviderDriverKind,
   type OrchestrationV2ProviderCapabilities,
   type ProviderUsageLimitsUpdate,
@@ -15,7 +14,6 @@ import {
 } from "@t3tools/provider-acp/server/adapter";
 import {
   ProviderAdapterDriverCreateError,
-  type ProviderAdapterDriver,
   type ProviderAdapterDriverCreateInput,
 } from "@t3tools/provider-core/server/adapterDriver";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
@@ -38,7 +36,7 @@ import type * as Scope from "effect/Scope";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as EffectAcpErrors from "effect-acp/errors";
 
-import { KiroSettings } from "../settings.ts";
+import type { KiroSettings } from "../settings.ts";
 import {
   executeKiroCommand,
   kiroLaunchRuntimeMode,
@@ -60,9 +58,7 @@ import {
   kiroUsageLimitsFromData,
 } from "./kiroProtocol.ts";
 
-export const KIRO_PROVIDER = ProviderDriverKind.make("kiro");
-export const KIRO_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(KIRO_PROVIDER);
-const DEFAULT_KIRO_SETTINGS = Schema.decodeSync(KiroSettings)({});
+const KIRO_PROVIDER = ProviderDriverKind.make("kiro");
 const isAcpRequestError = Schema.is(EffectAcpErrors.AcpRequestError);
 const decodeModelCommandData = Schema.decodeUnknownOption(
   Schema.Struct({
@@ -76,7 +72,7 @@ const KIRO_USAGE_LIMIT_ERROR = /usage limit|out of credits|insufficient credits|
 /** A turn usually meters several times; one usage read per window is plenty. */
 const USAGE_REFRESH_INTERVAL_MS = 30_000;
 
-export const KiroProviderCapabilitiesV2 = {
+const KiroProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
   sessions: {
     ...AcpProviderCapabilitiesV2.sessions,
@@ -271,7 +267,7 @@ const registerKiroExtensions =
       );
     });
 
-export function makeKiroAcpAdapterFlavor(
+function makeKiroAcpAdapterFlavor(
   options: KiroAdapterV2Options,
   state: KiroLiveState = {
     contextWindows: new Map(),
@@ -318,9 +314,7 @@ export function makeKiroAcpAdapterFlavor(
   };
 }
 
-export const makeKiroAdapterV2 = Effect.fn("makeKiroAdapterV2")(function* (
-  options: KiroAdapterV2Options,
-) {
+const makeKiroAdapterV2 = Effect.fn("makeKiroAdapterV2")(function* (options: KiroAdapterV2Options) {
   return yield* makeAcpAdapterV2({
     instanceId: options.instanceId,
     flavor: makeKiroAcpAdapterFlavor(options),
@@ -343,11 +337,11 @@ export type KiroAdapterV2DriverEnv =
   | ProviderEventLoggers.ProviderEventLoggers
   | ProviderHost.ProviderHost;
 
-export const createKiroAdapterV2 = (
-  input: ProviderAdapterDriverCreateInput<KiroSettings>,
-  extra: Pick<KiroAdapterV2Options, "onUsageLimits"> = {},
-) =>
-  Effect.gen(function* () {
+export const createKiroAdapterV2 = Effect.fn("createKiroAdapterV2")(
+  function* (
+    input: ProviderAdapterDriverCreateInput<KiroSettings>,
+    extra?: Pick<KiroAdapterV2Options, "onUsageLimits">,
+  ) {
     const hostEnvironment = yield* HostProcess.Environment;
     const selfInvocation = yield* resolveSelfInvocation();
     const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
@@ -367,22 +361,17 @@ export const createKiroAdapterV2 = (
           threadId,
         }),
     });
-  }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ProviderAdapterDriverCreateError({
-          driver: KIRO_PROVIDER,
-          instanceId: input.instanceId,
-          detail: "Failed to create Kiro ACP adapter.",
-          cause,
-        }),
+  },
+  (effect, input, _extra) =>
+    effect.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterDriverCreateError({
+            driver: KIRO_PROVIDER,
+            instanceId: input.instanceId,
+            detail: "Failed to create Kiro ACP adapter.",
+            cause,
+          }),
+      ),
     ),
-    Effect.withSpan("createKiroAdapterV2"),
-  );
-
-export const KiroAdapterV2Driver: ProviderAdapterDriver<KiroSettings, KiroAdapterV2DriverEnv> = {
-  driverKind: KIRO_PROVIDER,
-  configSchema: KiroSettings,
-  defaultConfig: (): KiroSettings => DEFAULT_KIRO_SETTINGS,
-  create: (input) => createKiroAdapterV2(input),
-};
+);

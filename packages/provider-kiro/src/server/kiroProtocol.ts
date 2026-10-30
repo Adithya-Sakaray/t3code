@@ -1,15 +1,6 @@
-/**
- * Kiro's ACP extensions and CLI output, decoded at the boundary.
- *
- * Kiro speaks ACP v1 plus vendor methods under `_kiro.dev/*`:
- * - `_kiro.dev/metadata` streams context fill and, at turn end, metered credits.
- * - `_kiro.dev/subagent/list_update` is the full crew roster; each child runs
- *   in its own ACP session whose `session/update` traffic follows.
- * - `_kiro.dev/commands/execute` runs a slash command (`effort`, `usage`,
- *   `model`) and answers `{ success, message, data }`.
- *
- * @module provider-kiro/server/kiroProtocol
- */
+// Kiro's vendor ACP methods: `_kiro.dev/metadata` streams context fill and turn-end credits,
+// `_kiro.dev/subagent/list_update` is the full crew roster (each child has its own ACP session),
+// and `_kiro.dev/commands/execute` runs a slash command answering `{ success, message, data }`.
 import type { ServerProviderUsageLimits, ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 import type { AcpAdapterV2SubagentUpdate } from "@t3tools/provider-acp/server/adapter";
 import type * as EffectAcpSchema from "effect-acp/compat";
@@ -27,7 +18,7 @@ export const KIRO_DEFAULT_MODEL = "auto";
 export const KIRO_EFFORT_OPTION_ID = "effort";
 /** Kiro credits are billed at $0.04 each once a plan's included credits run out. */
 export const KIRO_USD_PER_CREDIT = 0.04;
-export const KIRO_CREDITS_CURRENCY = "credits";
+const KIRO_CREDITS_CURRENCY = "credits";
 
 const KiroMeteringEntry = Schema.Struct({
   value: Schema.Number,
@@ -182,12 +173,9 @@ export function kiroMeteredCredits(notification: KiroMetadataNotification): numb
 }
 
 /**
- * Folds one metadata notification into a session's context usage.
- *
- * Kiro reports context as a percentage of the running model's window, so the
- * token counts are that percentage of `contextWindowTokens`. Credits are
- * cumulative: each metered notification adds to the cost the thread already
- * carries. Returns null when the notification changes nothing.
+ * Kiro reports context as a percentage of the model's window, so token counts derive from
+ * `contextWindowTokens`. Each metered notification adds to the thread's credits. Null when
+ * nothing changes.
  */
 export function kiroContextUsageFromMetadata(input: {
   readonly notification: KiroMetadataNotification;

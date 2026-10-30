@@ -1,6 +1,6 @@
 {
   "name": "@t3tools/contracts",
-  "version": "0.1.4-adi.1",
+  "version": "0.1.5-adi.1",
   "private": true,
   "files": [
     "dist"
